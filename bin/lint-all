@@ -1,0 +1,136 @@
+#!/bin/bash
+#
+# lint-all - Run all linters via Roger Linter Aggregator
+#
+# Usage:
+#   lint-all [OPTIONS]
+#
+# Options:
+#   --path PATH        Path to analyze (default: current directory)
+#   --format FORMAT    Output format: json|text (default: json)
+#   --verbose, -v      Enable verbose output
+#   --no-parallel      Disable parallel execution
+#   --fix              Auto-fix issues where possible (black formatting)
+#   --help, -h         Show this help message
+#
+# Exit Codes:
+#   0 - Success (no critical/high issues)
+#   1 - Issues found (critical or high priority)
+#   2 - Linter execution failed
+#
+# Examples:
+#   lint-all                          # Run in current directory
+#   lint-all --path src/              # Run in specific directory
+#   lint-all --format text            # Human-readable output
+#   lint-all --verbose                # Verbose output
+#   lint-all --fix                    # Auto-fix formatting issues
+#
+# Author: Eric Johnson (Senior Developer)
+# Date: 2025-11-10
+# Version: 1.0
+#
+
+set -euo pipefail
+
+# Configuration
+AGGREGATOR="/srv/cc/hana-x-infrastructure/.claude/agents/roger/linter_aggregator.py"
+PYTHON="/usr/bin/python3"
+BLACK="/home/agent0/.local/bin/black"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Default options
+FIX_MODE=false
+
+# Parse arguments
+ARGS=()
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --help|-h)
+            # Extract usage from header comments
+            grep "^#" "$0" | grep -v "^#!/" | sed 's/^# //' | sed 's/^#//'
+            exit 0
+            ;;
+        --fix)
+            FIX_MODE=true
+            shift
+            ;;
+        *)
+            ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+# Validate aggregator exists
+if [ ! -f "$AGGREGATOR" ]; then
+    echo -e "${RED}❌ Error: Linter aggregator not found at $AGGREGATOR${NC}" >&2
+    exit 2
+fi
+
+# Validate python exists
+if [ ! -x "$PYTHON" ]; then
+    echo -e "${RED}❌ Error: Python not found at $PYTHON${NC}" >&2
+    exit 2
+fi
+
+# Banner
+echo -e "${BLUE}╔════════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${BLUE}║          ROGER LINTER AGGREGATOR - Production v1.0             ║${NC}"
+echo -e "${BLUE}║  Bandit | Pylint | Mypy | Radon | Black | Pytest (Coverage)   ║${NC}"
+echo -e "${BLUE}╚════════════════════════════════════════════════════════════════╝${NC}"
+echo ""
+
+# Fix mode (run black before linting)
+if [ "$FIX_MODE" = true ]; then
+    echo -e "${YELLOW}🔧 Fix mode enabled - running black formatter...${NC}"
+
+    if [ ! -x "$BLACK" ]; then
+        echo -e "${RED}❌ Error: Black not found at $BLACK${NC}" >&2
+        exit 2
+    fi
+
+    # Get path argument if provided
+    TARGET_PATH="."
+    for i in "${!ARGS[@]}"; do
+        if [[ "${ARGS[$i]}" == "--path" ]] && [[ -n "${ARGS[$i+1]:-}" ]]; then
+            TARGET_PATH="${ARGS[$i+1]}"
+            break
+        fi
+    done
+
+    # Run black
+    if "$BLACK" "$TARGET_PATH" 2>&1; then
+        echo -e "${GREEN}✓ Black formatting complete${NC}"
+    else
+        echo -e "${YELLOW}⚠️  Black formatting had warnings${NC}"
+    fi
+    echo ""
+fi
+
+# Run aggregator
+"$PYTHON" "$AGGREGATOR" "${ARGS[@]}"
+EXIT_CODE=$?
+
+# Post-processing based on exit code
+echo ""
+case $EXIT_CODE in
+    0)
+        echo -e "${GREEN}✅ SUCCESS: No critical or high-priority issues found${NC}"
+        ;;
+    1)
+        echo -e "${YELLOW}⚠️  ISSUES FOUND: Critical or high-priority issues detected${NC}"
+        echo -e "${YELLOW}Please review and fix the issues above${NC}"
+        ;;
+    2)
+        echo -e "${RED}❌ FAILURE: One or more linters failed to execute${NC}"
+        echo -e "${RED}Check linter installation and configuration${NC}"
+        ;;
+esac
+
+exit $EXIT_CODE

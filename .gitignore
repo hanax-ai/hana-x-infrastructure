@@ -1,0 +1,120 @@
+# Hana-X Infrastructure - Git Ignore
+# Purpose: Exclude runtime data, cache, logs, and environment-specific files
+
+# Cache directories (runtime data, should not be versioned)
+cache/
+**/cache/
+*.cache
+
+# Log files (runtime logs, should not be versioned)
+logs/
+**/logs/
+*.log
+*.jsonl
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Testing artifacts
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+*.env
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# API keys and secrets (should never be committed)
+secrets/
+**/secrets/
+*.key
+*.pem
+credentials.json
+api_keys.json
+
+# Database files (if any local SQLite, etc.)
+*.db
+*.sqlite
+*.sqlite3
+
+# Redis dump files
+dump.rdb
+
+# OS-specific files
+Thumbs.db
+.DS_Store
+ehthumbs.db
+Desktop.ini
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Coverage HTML reports
+htmlcov/
+coverage_html_report/
+
+# Lock files (optional - discuss with team)
+# Pipfile.lock
+# poetry.lock
+
+# Documentation build artifacts
+docs/_build/
+docs/.doctrees/
+
+# Performance profiling data
+*.prof
+*.lprof
+
+# Local configuration overrides
+local_config.yaml
+local_settings.py
+*_local.yaml
+
+# Test output and fixtures
+test_output/
+test_results/
+*.test.log
