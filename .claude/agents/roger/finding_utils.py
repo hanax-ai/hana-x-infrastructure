@@ -56,11 +56,11 @@ from typing import Dict, List, Set, Tuple
 
 # Category equivalence mapping (for deduplication)
 CATEGORY_EQUIVALENCE = {
-    'vulnerability': 'security',
-    'code_smell': 'quality',
-    'type_issue': 'type_error',
-    'cognitive_load': 'complexity',
-    'style': 'formatting'
+    "vulnerability": "security",
+    "code_smell": "quality",
+    "type_issue": "type_error",
+    "cognitive_load": "complexity",
+    "style": "formatting",
 }
 
 
@@ -120,8 +120,7 @@ def generate_fingerprint(file: str, line: int, category: str) -> str:
 
 
 def deduplicate_findings(
-    layer1_findings: List[Dict],
-    layer3_findings: List[Dict]
+    layer1_findings: List[Dict], layer3_findings: List[Dict]
 ) -> List[Dict]:
     """
     Deduplicate findings from Layer 1 and Layer 3 using precedence rules.
@@ -154,10 +153,10 @@ def deduplicate_findings(
     location_categories: Dict[Tuple[str, int], Set[str]] = {}
 
     # Process Layer 1 findings first (they have precedence)
-    for finding in layer1_findings:
-        file = finding.get('file', 'unknown')
-        line = finding.get('line', 0)
-        category = normalize_category(finding.get('category', 'unknown'))
+    for finding_item in layer1_findings:
+        file = finding_item.get("file", "unknown")
+        line = finding_item.get("line", 0)
+        category = normalize_category(finding_item.get("category", "unknown"))
 
         # Generate fingerprint
         fingerprint = generate_fingerprint(file, line, category)
@@ -172,10 +171,10 @@ def deduplicate_findings(
     # Filter Layer 3 findings
     deduplicated_layer3 = []
 
-    for finding in layer3_findings:
-        file = finding.get('file', 'unknown')
-        line = finding.get('line', 0)
-        category = normalize_category(finding.get('category', 'unknown'))
+    for layer3_finding in layer3_findings:
+        file = layer3_finding.get("file", "unknown")
+        line = layer3_finding.get("line", 0)
+        category = normalize_category(layer3_finding.get("category", "unknown"))
 
         # Generate fingerprint
         fingerprint = generate_fingerprint(file, line, category)
@@ -185,8 +184,8 @@ def deduplicate_findings(
             continue  # Duplicate - Layer 1 takes precedence
 
         # Check if this is a unique Layer 3 category (never deduplicated)
-        if category in ['solid_violation', 'design_pattern', 'architecture']:
-            deduplicated_layer3.append(finding)
+        if category in ["solid_violation", "design_pattern", "architecture"]:
+            deduplicated_layer3.append(layer3_finding)
             continue
 
         # Check if this is a complementary finding (same location, different category)
@@ -194,18 +193,18 @@ def deduplicate_findings(
         if location in location_categories:
             if category not in location_categories[location]:
                 # Different category at same location - keep it (complementary)
-                deduplicated_layer3.append(finding)
+                deduplicated_layer3.append(layer3_finding)
                 location_categories[location].add(category)
         else:
             # New location - keep it
-            deduplicated_layer3.append(finding)
+            deduplicated_layer3.append(layer3_finding)
             location_categories[location] = {category}
 
     # Combine Layer 1 + deduplicated Layer 3
     return layer1_findings + deduplicated_layer3
 
 
-def normalize_finding(finding: Dict, finding_id: str) -> Dict:
+def normalize_finding(raw_finding: Dict, finding_id: str) -> Dict:
     """
     Normalize finding to unified Roger format.
 
@@ -226,7 +225,7 @@ def normalize_finding(finding: Dict, finding_id: str) -> Dict:
         finding_id: Unique Roger ID (ROG-0001, ROG-0002, ...)
 
     Returns:
-        Normalized finding in Roger format with fields:
+        Normalized finding dictionary in Roger format with fields:
             - id: Roger ID
             - priority: Priority level
             - category: Normalized category
@@ -247,54 +246,53 @@ def normalize_finding(finding: Dict, finding_id: str) -> Dict:
         >>> normalize_finding(finding, 'ROG-0001')
         {'id': 'ROG-0001', 'priority': 'P1', 'category': 'security', ...}
     """
-    # Extract or infer fields
-    priority = finding.get('priority', 'P2')
-    category = normalize_category(finding.get('category', 'unknown'))
-    source_layer = finding.get('source_layer', finding.get('source', 'unknown'))
+    # Extract or infer fields from raw finding
+    priority = raw_finding.get("priority", "P2")
+    category = normalize_category(raw_finding.get("category", "unknown"))
+    source_layer = raw_finding.get("source_layer", raw_finding.get("source", "unknown"))
 
     # Map Layer 1 source names to Layer 1 if not explicitly set
-    layer1_tools = ['bandit', 'pylint', 'mypy', 'radon', 'black', 'pytest']
+    layer1_tools = ["bandit", "pylint", "mypy", "radon", "black", "pytest"]
     if source_layer in layer1_tools:
-        source_layer_normalized = 'layer1'
+        source_layer_normalized = "layer1"
         source_tool = source_layer
-    elif source_layer == 'coderabbit':
-        source_layer_normalized = 'layer3'
-        source_tool = 'coderabbit'
+    elif source_layer == "coderabbit":
+        source_layer_normalized = "layer3"
+        source_tool = "coderabbit"
     else:
         source_layer_normalized = source_layer
-        source_tool = finding.get(
-            'source_tool',
-            finding.get('source', 'unknown')
+        source_tool = raw_finding.get(
+            "source_tool", raw_finding.get("source", "unknown")
         )
 
-    file = finding.get('file', 'unknown')
-    line = finding.get('line', None)
-    message = finding.get('message', 'Unknown issue')
-    details = finding.get('details', 'No additional details')
-    fix = finding.get('fix', None)
+    file = raw_finding.get("file", "unknown")
+    line = raw_finding.get("line", None)
+    message = raw_finding.get("message", "Unknown issue")
+    details = raw_finding.get("details", "No additional details")
+    fix = raw_finding.get("fix", None)
 
     # Generate fingerprint if not present
-    if 'fingerprint' in finding:
-        fingerprint = finding['fingerprint']
+    if "fingerprint" in raw_finding:
+        fingerprint = raw_finding["fingerprint"]
     else:
         fingerprint = generate_fingerprint(file, line or 0, category)
 
     return {
-        'id': finding_id,
-        'priority': priority,
-        'category': category,
-        'source_layer': source_layer_normalized,
-        'source_tool': source_tool,
-        'file': file,
-        'line': line,
-        'message': message,
-        'details': details,
-        'fix': fix,
-        'fingerprint': fingerprint
+        "id": finding_id,
+        "priority": priority,
+        "category": category,
+        "source_layer": source_layer_normalized,
+        "source_tool": source_tool,
+        "file": file,
+        "line": line,
+        "message": message,
+        "details": details,
+        "fix": fix,
+        "fingerprint": fingerprint,
     }
 
 
-def normalize_findings(findings: List[Dict]) -> List[Dict]:
+def normalize_findings(raw_findings: List[Dict]) -> List[Dict]:
     """
     Normalize list of findings to unified Roger format with ID assignment.
 
@@ -303,7 +301,7 @@ def normalize_findings(findings: List[Dict]) -> List[Dict]:
     starting from ROG-0001.
 
     Args:
-        findings: List of raw findings from Layer 1 or Layer 3
+        raw_findings: List of raw findings from Layer 1 or Layer 3
 
     Returns:
         List of normalized findings with assigned Roger IDs (ROG-0001, ...)
@@ -321,11 +319,11 @@ def normalize_findings(findings: List[Dict]) -> List[Dict]:
         >>> normalized[1]['id']
         'ROG-0002'
     """
-    normalized = []
-    for idx, finding in enumerate(findings, start=1):
+    normalized_list = []
+    for idx, raw_finding in enumerate(raw_findings, start=1):
         roger_id = f"ROG-{idx:04d}"
-        normalized.append(normalize_finding(finding, roger_id))
-    return normalized
+        normalized_list.append(normalize_finding(raw_finding, roger_id))
+    return normalized_list
 
 
 def _count_by_priority(findings: List[Dict]) -> Dict[str, int]:
@@ -344,11 +342,11 @@ def _count_by_priority(findings: List[Dict]) -> Dict[str, int]:
         {'P0': 0, 'P1': 2, 'P2': 1, 'P3': 0, 'P4': 0}
     """
     return {
-        'P0': len([f for f in findings if f.get('priority') == 'P0']),
-        'P1': len([f for f in findings if f.get('priority') == 'P1']),
-        'P2': len([f for f in findings if f.get('priority') == 'P2']),
-        'P3': len([f for f in findings if f.get('priority') == 'P3']),
-        'P4': len([f for f in findings if f.get('priority') == 'P4'])
+        "P0": len([f for f in findings if f.get("priority") == "P0"]),
+        "P1": len([f for f in findings if f.get("priority") == "P1"]),
+        "P2": len([f for f in findings if f.get("priority") == "P2"]),
+        "P3": len([f for f in findings if f.get("priority") == "P3"]),
+        "P4": len([f for f in findings if f.get("priority") == "P4"]),
     }
 
 
@@ -368,9 +366,9 @@ def _count_by_category(findings: List[Dict]) -> Dict[str, int]:
         {'security': 1, 'quality': 1}
     """
     category_counts = {}
-    for finding in findings:
-        category = finding.get('category', 'unknown')
-        category_counts[category] = category_counts.get(category, 0) + 1
+    for item in findings:
+        item_category = item.get("category", "unknown")
+        category_counts[item_category] = category_counts.get(item_category, 0) + 1
     return category_counts
 
 
@@ -390,15 +388,12 @@ def _count_by_layer(findings: List[Dict]) -> Dict[str, int]:
         {'layer1': 1, 'layer3': 1}
     """
     return {
-        'layer1': len([f for f in findings if f.get('source_layer') == 'layer1']),
-        'layer3': len([f for f in findings if f.get('source_layer') == 'layer3'])
+        "layer1": len([f for f in findings if f.get("source_layer") == "layer1"]),
+        "layer3": len([f for f in findings if f.get("source_layer") == "layer3"]),
     }
 
 
-def _generate_summary_text(
-    total: int,
-    priority_counts: Dict[str, int]
-) -> str:
+def _generate_summary_text(total: int, priority_counts: Dict[str, int]) -> str:
     """
     Generate human-readable summary text.
 
@@ -416,15 +411,15 @@ def _generate_summary_text(
     summary_text = f"Found {total} issue{'s' if total != 1 else ''}"
 
     priority_parts = []
-    if priority_counts['P0'] > 0:
+    if priority_counts["P0"] > 0:
         priority_parts.append(f"{priority_counts['P0']} critical (P0)")
-    if priority_counts['P1'] > 0:
+    if priority_counts["P1"] > 0:
         priority_parts.append(f"{priority_counts['P1']} high (P1)")
-    if priority_counts['P2'] > 0:
+    if priority_counts["P2"] > 0:
         priority_parts.append(f"{priority_counts['P2']} medium (P2)")
-    if priority_counts['P3'] > 0:
+    if priority_counts["P3"] > 0:
         priority_parts.append(f"{priority_counts['P3']} low (P3)")
-    if priority_counts['P4'] > 0:
+    if priority_counts["P4"] > 0:
         priority_parts.append(f"{priority_counts['P4']} info (P4)")
 
     if priority_parts:
@@ -466,62 +461,62 @@ def generate_summary(findings: List[Dict]) -> Dict:
     summary_text = _generate_summary_text(total, priority_counts)
 
     return {
-        'total_issues': total,
-        'by_priority': priority_counts,
-        'by_category': category_counts,
-        'by_layer': layer_counts,
-        'summary_text': summary_text
+        "total_issues": total,
+        "by_priority": priority_counts,
+        "by_category": category_counts,
+        "by_layer": layer_counts,
+        "summary_text": summary_text,
     }
 
 
 # Example usage
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Example Layer 1 findings
     layer1 = [
         {
-            'priority': 'P1',
-            'category': 'security',
-            'source': 'bandit',
-            'file': '/srv/cc/project/main.py',
-            'line': 42,
-            'message': 'SQL injection vulnerability',
-            'details': 'User input not sanitized',
-            'fix': 'Use parameterized queries'
+            "priority": "P1",
+            "category": "security",
+            "source": "bandit",
+            "file": "/srv/cc/project/main.py",
+            "line": 42,
+            "message": "SQL injection vulnerability",
+            "details": "User input not sanitized",
+            "fix": "Use parameterized queries",
         },
         {
-            'priority': 'P2',
-            'category': 'quality',
-            'source': 'pylint',
-            'file': '/srv/cc/project/utils.py',
-            'line': 15,
-            'message': 'Unused variable',
-            'details': 'Variable "foo" is defined but never used',
-            'fix': 'Remove unused variable'
-        }
+            "priority": "P2",
+            "category": "quality",
+            "source": "pylint",
+            "file": "/srv/cc/project/utils.py",
+            "line": 15,
+            "message": "Unused variable",
+            "details": 'Variable "foo" is defined but never used',
+            "fix": "Remove unused variable",
+        },
     ]
 
     # Example Layer 3 findings
     layer3 = [
         {
-            'priority': 'P1',
-            'category': 'security',  # Duplicate with Layer 1
-            'source': 'coderabbit',
-            'source_layer': 'layer3',
-            'file': '/srv/cc/project/main.py',
-            'line': 42,
-            'message': 'SQL injection detected',
-            'details': 'Raw SQL with user input'
+            "priority": "P1",
+            "category": "security",  # Duplicate with Layer 1
+            "source": "coderabbit",
+            "source_layer": "layer3",
+            "file": "/srv/cc/project/main.py",
+            "line": 42,
+            "message": "SQL injection detected",
+            "details": "Raw SQL with user input",
         },
         {
-            'priority': 'P2',
-            'category': 'solid_violation',  # Unique Layer 3 category
-            'source': 'coderabbit',
-            'source_layer': 'layer3',
-            'file': '/srv/cc/project/main.py',
-            'line': 42,
-            'message': 'Single Responsibility Principle violation',
-            'details': 'Function does too many things'
-        }
+            "priority": "P2",
+            "category": "solid_violation",  # Unique Layer 3 category
+            "source": "coderabbit",
+            "source_layer": "layer3",
+            "file": "/srv/cc/project/main.py",
+            "line": 42,
+            "message": "Single Responsibility Principle violation",
+            "details": "Function does too many things",
+        },
     ]
 
     # Deduplicate
@@ -535,7 +530,10 @@ if __name__ == '__main__':
     normalized = normalize_findings(deduplicated)
     print("Normalized findings:")
     for finding in normalized:
-        print(f"  {finding['id']}: {finding['message']} [{finding['priority']}] ({finding['source_layer']})")
+        print(
+            f"  {finding['id']}: {finding['message']} "
+            f"[{finding['priority']}] ({finding['source_layer']})"
+        )
     print()
 
     # Summary

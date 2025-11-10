@@ -47,9 +47,10 @@ Layer: POC4 CodeRabbit Layer 2 (Orchestration)
 """
 
 import re
+import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 
 class DefectLogger:
@@ -102,24 +103,22 @@ class DefectLogger:
             No exceptions - silently resets state if parsing fails
         """
         try:
-            content = self.log_path.read_text()
+            content = self.log_path.read_text(encoding="utf-8")
 
             # Extract highest defect ID
-            defect_ids = re.findall(r'### DEF-(\d+):', content)
+            defect_ids = re.findall(r"### DEF-(\d+):", content)
             if defect_ids:
-                self.defect_counter = max(
-                    int(id_str) for id_str in defect_ids
-                )
+                self.defect_counter = max(int(id_str) for id_str in defect_ids)
 
-            # Extract fingerprints (16 hex character strings)
-            fingerprints = re.findall(
-                r'\*\*Fingerprint\*\*: `([a-f0-9]{16})`',
-                content
-            )
+            # Extract fingerprints (16 hex character strings from SHA256[:16])
+            # Format: **Fingerprint**: `abc123def456789a` (exactly 16 hex chars)
+            fingerprints = re.findall(r"\*\*Fingerprint\*\*: `([a-f0-9]{16})`", content)
             self.existing_fingerprints = set(fingerprints)
 
-        except Exception:
-            # If parsing fails, start fresh
+        except (OSError, ValueError) as e:
+            # If parsing fails (file read error or invalid format), start fresh
+            # Log the error to stderr for debugging
+            print(f"Warning: Failed to parse existing log: {e}", file=sys.stderr)
             self.defect_counter = 0
             self.existing_fingerprints = set()
 
@@ -127,7 +126,7 @@ class DefectLogger:
         self,
         findings: List[Dict],
         project_name: str = "Unknown Project",
-        overwrite: bool = False
+        overwrite: bool = False,
     ) -> int:
         """
         Create new defect log file or append to existing log.
@@ -176,12 +175,12 @@ class DefectLogger:
         content += self._generate_defects_section(findings)
 
         # Write to file
-        self.log_path.write_text(content)
+        self.log_path.write_text(content, encoding="utf-8")
 
         # Track fingerprints
         for finding in findings:
-            if 'fingerprint' in finding:
-                self.existing_fingerprints.add(finding['fingerprint'])
+            if "fingerprint" in finding:
+                self.existing_fingerprints.add(finding["fingerprint"])
 
         return len(findings)
 
@@ -210,8 +209,9 @@ class DefectLogger:
 
         # Filter out duplicates
         new_findings = [
-            f for f in findings
-            if f.get('fingerprint') not in self.existing_fingerprints
+            f
+            for f in findings
+            if f.get("fingerprint") not in self.existing_fingerprints
         ]
 
         if not new_findings:
@@ -221,7 +221,7 @@ class DefectLogger:
         new_defects_content = self._generate_defects_section(new_findings)
 
         # Append to log
-        with open(self.log_path, 'a') as f:
+        with open(self.log_path, "a", encoding="utf-8") as f:
             f.write("\n---\n\n")
             f.write("## Additional Defects\n\n")
             f.write(f"**Appended**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
@@ -229,19 +229,15 @@ class DefectLogger:
 
         # Update existing fingerprints
         for finding in new_findings:
-            if 'fingerprint' in finding:
-                self.existing_fingerprints.add(finding['fingerprint'])
+            if "fingerprint" in finding:
+                self.existing_fingerprints.add(finding["fingerprint"])
 
         # Update summary (full log rewrite - keep this simple for Phase 2)
         self._update_summary()
 
         return len(new_findings)
 
-    def _generate_log_header(
-        self,
-        project_name: str,
-        findings: List[Dict]
-    ) -> str:
+    def _generate_log_header(self, project_name: str, findings: List[Dict]) -> str:
         """
         Generate log header with metadata.
 
@@ -252,10 +248,8 @@ class DefectLogger:
         Returns:
             Markdown-formatted header string
         """
-        analyzed_files = len(
-            set(f.get('file', 'unknown') for f in findings)
-        )
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        analyzed_files = len(set(f.get("file", "unknown") for f in findings))
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         return f"""# Defect Log - {project_name}
 
@@ -279,11 +273,11 @@ class DefectLogger:
         """
         # Count by priority
         priority_counts = {
-            'P0': len([f for f in findings if f.get('priority') == 'P0']),
-            'P1': len([f for f in findings if f.get('priority') == 'P1']),
-            'P2': len([f for f in findings if f.get('priority') == 'P2']),
-            'P3': len([f for f in findings if f.get('priority') == 'P3']),
-            'P4': len([f for f in findings if f.get('priority') == 'P4'])
+            "P0": len([f for f in findings if f.get("priority") == "P0"]),
+            "P1": len([f for f in findings if f.get("priority") == "P1"]),
+            "P2": len([f for f in findings if f.get("priority") == "P2"]),
+            "P3": len([f for f in findings if f.get("priority") == "P3"]),
+            "P4": len([f for f in findings if f.get("priority") == "P4"]),
         }
 
         return f"""## Summary
@@ -317,16 +311,16 @@ class DefectLogger:
             defect_id = f"DEF-{self.defect_counter:04d}"
 
             # Extract fields
-            message = finding.get('message', 'Unknown issue')
-            priority = finding.get('priority', 'P2')
-            file_path = finding.get('file', 'unknown')
-            line = finding.get('line', '?')
-            category = finding.get('category', 'unknown')
-            source_tool = finding.get('source_tool', 'unknown')
-            source_layer = finding.get('source_layer', 'unknown')
-            details = finding.get('details', 'No additional details')
-            fix = finding.get('fix', 'No suggested fix')
-            fingerprint = finding.get('fingerprint', 'N/A')
+            message = finding.get("message", "Unknown issue")
+            priority = finding.get("priority", "P2")
+            file_path = finding.get("file", "unknown")
+            line = finding.get("line", "?")
+            category = finding.get("category", "unknown")
+            source_tool = finding.get("source_tool", "unknown")
+            source_layer = finding.get("source_layer", "unknown")
+            details = finding.get("details", "No additional details")
+            fix = finding.get("fix", "No suggested fix")
+            fingerprint = finding.get("fingerprint", "N/A")
 
             content += f"""### {defect_id}: {message} [{priority}]
 
@@ -347,16 +341,24 @@ class DefectLogger:
         """
         Update summary section in existing log.
 
-        This is a simplified implementation for Phase 2.
-        Phase 3 could implement more sophisticated log parsing
-        and in-place summary updates.
+        WARNING: This method is intentionally a no-op in Phase 2.
+        The summary table at the top of DEFECT-LOG.md is NOT updated
+        when defects are appended. Use get_defect_summary() instead,
+        which parses all defect entries directly for accurate counts.
+
+        Rationale:
+            - In-place summary updates require complex log parsing/rewriting
+            - get_defect_summary() provides accurate counts without file
+              modification
+            - Phase 3 may implement full log regeneration if needed
 
         Note:
-            Currently a no-op. Full log regeneration not needed for appends.
+            This is intentional technical debt acceptable for Phase 2.
+            The summary table shows initial state only. Always use
+            get_defect_summary() for current counts after appends.
         """
-        # For Phase 2, we'll leave this as a no-op
-        # Full log regeneration is not needed for append operations
-        pass
+        # Intentional no-op - see docstring for rationale
+        # Phase 3 could implement full log regeneration or in-place updates
 
     def get_defect_count(self) -> int:
         """
@@ -371,8 +373,9 @@ class DefectLogger:
         """
         Get summary of defects by priority from existing log.
 
-        Parses the DEFECT-LOG.md file to extract priority counts from
-        the summary table.
+        Parses all defect entries directly to count priorities accurately,
+        including defects added via append operations. This ensures counts
+        are always current regardless of summary table state.
 
         Returns:
             Dictionary with priority counts {'P0': count, 'P1': count, ...}
@@ -384,20 +387,21 @@ class DefectLogger:
             1
         """
         if not self.log_path.exists():
-            return {'P0': 0, 'P1': 0, 'P2': 0, 'P3': 0, 'P4': 0}
+            return {"P0": 0, "P1": 0, "P2": 0, "P3": 0, "P4": 0}
 
-        content = self.log_path.read_text()
+        content = self.log_path.read_text(encoding="utf-8")
 
-        # Parse priority counts from summary table
-        counts = {'P0': 0, 'P1': 0, 'P2': 0, 'P3': 0, 'P4': 0}
+        # Parse all defect entries directly using regex to extract [PX] tags
+        # Format: ### DEF-0001: Message [P1]
+        counts = {"P0": 0, "P1": 0, "P2": 0, "P3": 0, "P4": 0}
 
-        for priority in counts.keys():
-            match = re.search(
-                rf'\| {priority} \([^)]+\) \| (\d+) \|',
-                content
-            )
-            if match:
-                counts[priority] = int(match.group(1))
+        # Extract all priority tags from defect headers
+        priority_tags = re.findall(r"### DEF-\d+:.*?\[([A-Z]\d+)\]", content)
+
+        # Count each priority
+        for tag in priority_tags:
+            if tag in counts:
+                counts[tag] += 1
 
         return counts
 
@@ -426,7 +430,7 @@ class DefectLogger:
 def create_defect_log(
     findings: List[Dict],
     project_name: str = "Unknown Project",
-    log_path: str = "./DEFECT-LOG.md"
+    log_path: str = "./DEFECT-LOG.md",
 ) -> int:
     """
     Convenience function to create defect log.
@@ -452,10 +456,7 @@ def create_defect_log(
     return logger.create_defect_log(findings, project_name, overwrite=True)
 
 
-def append_defects(
-    findings: List[Dict],
-    log_path: str = "./DEFECT-LOG.md"
-) -> int:
+def append_defects(findings: List[Dict], log_path: str = "./DEFECT-LOG.md") -> int:
     """
     Convenience function to append defects to existing log.
 
@@ -480,40 +481,40 @@ def append_defects(
     return logger.append_defects(findings)
 
 
-# Example usage:
-if __name__ == '__main__':
-    # Example findings
-    example_findings = [
+# Example usage and module test
+if __name__ == "__main__":
+    # Example findings for module test
+    sample_findings = [
         {
-            'id': 'ROG-0001',
-            'priority': 'P1',
-            'category': 'security',
-            'source_layer': 'layer1',
-            'source_tool': 'bandit',
-            'file': '/srv/cc/project/main.py',
-            'line': 42,
-            'message': 'SQL injection vulnerability',
-            'details': 'User input not sanitized',
-            'fix': 'Use parameterized queries',
-            'fingerprint': 'a1b2c3d4e5f6g7h8'
+            "id": "ROG-0001",
+            "priority": "P1",
+            "category": "security",
+            "source_layer": "layer1",
+            "source_tool": "bandit",
+            "file": "/srv/cc/project/main.py",
+            "line": 42,
+            "message": "SQL injection vulnerability",
+            "details": "User input not sanitized",
+            "fix": "Use parameterized queries",
+            "fingerprint": "a1b2c3d4e5f6a7b8",
         },
         {
-            'id': 'ROG-0002',
-            'priority': 'P2',
-            'category': 'quality',
-            'source_layer': 'layer1',
-            'source_tool': 'pylint',
-            'file': '/srv/cc/project/utils.py',
-            'line': 15,
-            'message': 'Function too complex',
-            'details': 'Complexity score: 15',
-            'fix': 'Extract sub-functions',
-            'fingerprint': 'b2c3d4e5f6g7h8i9'
-        }
+            "id": "ROG-0002",
+            "priority": "P2",
+            "category": "quality",
+            "source_layer": "layer1",
+            "source_tool": "pylint",
+            "file": "/srv/cc/project/utils.py",
+            "line": 15,
+            "message": "Function too complex",
+            "details": "Complexity score: 15",
+            "fix": "Extract sub-functions",
+            "fingerprint": "b2c3d4e5f6a7b8c9",
+        },
     ]
 
-    # Create log
-    logger = DefectLogger('./example-defect-log.md')
-    count = logger.create_defect_log(example_findings, "Example Project")
+    # Create log from sample findings
+    example_logger = DefectLogger("./example-defect-log.md")
+    count = example_logger.create_defect_log(sample_findings, "Example Project")
     print(f"Created defect log with {count} defects")
-    print(f"Summary: {logger.get_defect_summary()}")
+    print(f"Summary: {example_logger.get_defect_summary()}")

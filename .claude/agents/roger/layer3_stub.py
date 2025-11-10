@@ -73,7 +73,7 @@ class CodeRabbitLayer3:
         self,
         config_path: Optional[str] = None,
         cache_dir: Optional[str] = None,
-        api_key: Optional[str] = None
+        api_key: Optional[str] = None,
     ):
         """
         Initialize Layer 3 stub.
@@ -105,7 +105,9 @@ class CodeRabbitLayer3:
         """
         return self.enabled
 
-    def analyze_files(self, file_paths: List[str]) -> List[Dict]:
+    def analyze_files(  # pylint: disable=unused-argument
+        self, file_paths: List[str]
+    ) -> List[Dict]:
         """
         Analyze files with CodeRabbit API (stub implementation).
 
@@ -183,7 +185,7 @@ class CodeRabbitLayer3:
             "cache_hits": 0,
             "cache_misses": 0,
             "hit_rate": 0.0,
-            "total_entries": 0
+            "total_entries": 0,
         }
 
     def clear_cache(self) -> int:
@@ -200,7 +202,9 @@ class CodeRabbitLayer3:
         """
         return 0
 
-    def _get_cached_result(self, file_path: str) -> Optional[List[Dict]]:
+    def _get_cached_result(
+        self, file_path: str  # pylint: disable=unused-argument
+    ) -> Optional[List[Dict]]:
         """
         Get cached result for file (stub - always returns None).
 
@@ -212,7 +216,9 @@ class CodeRabbitLayer3:
         """
         return None
 
-    def _call_coderabbit_api(self, file_path: str) -> List[Dict]:
+    def _call_coderabbit_api(
+        self, file_path: str  # pylint: disable=unused-argument
+    ) -> List[Dict]:
         """
         Call CodeRabbit API (stub - not implemented).
 
@@ -226,8 +232,8 @@ class CodeRabbitLayer3:
 
     def _cache_result(
         self,
-        file_path: str,
-        result: List[Dict]
+        file_path: str,  # pylint: disable=unused-argument
+        result: List[Dict],  # pylint: disable=unused-argument
     ) -> None:
         """
         Cache API result (stub - no-op).
@@ -236,7 +242,7 @@ class CodeRabbitLayer3:
             file_path: File path being cached
             result: API result to cache
         """
-        pass
+        # Intentional no-op for Phase 2 stub
 
 
 # Phase 3 Implementation Notes:

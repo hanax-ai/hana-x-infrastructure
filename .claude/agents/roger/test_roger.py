@@ -29,6 +29,7 @@ Date: 2025-11-10
 Version: 1.0
 """
 
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -42,7 +43,7 @@ from finding_utils import (
     deduplicate_findings,
     normalize_finding,
     normalize_findings,
-    generate_summary
+    generate_summary,
 )
 
 
@@ -57,16 +58,16 @@ class TestLayer3Stub(unittest.TestCase):
     def test_stub_returns_empty_findings(self):
         """Stub should return empty findings list"""
         layer3 = CodeRabbitLayer3()
-        findings = layer3.analyze_files(['/srv/cc/test.py'])
+        findings = layer3.analyze_files(["/srv/cc/test.py"])
         self.assertEqual(findings, [])
 
     def test_cache_stats_empty(self):
         """Cache stats should return empty values"""
         layer3 = CodeRabbitLayer3()
         stats = layer3.get_cache_stats()
-        self.assertEqual(stats['cache_enabled'], False)
-        self.assertEqual(stats['cache_hits'], 0)
-        self.assertEqual(stats['total_entries'], 0)
+        self.assertEqual(stats["cache_enabled"], False)
+        self.assertEqual(stats["cache_hits"], 0)
+        self.assertEqual(stats["total_entries"], 0)
 
     def test_clear_cache_returns_zero(self):
         """Clear cache should return 0"""
@@ -80,18 +81,18 @@ class TestFindingUtils(unittest.TestCase):
 
     def test_normalize_category(self):
         """Test category normalization"""
-        self.assertEqual(normalize_category('vulnerability'), 'security')
-        self.assertEqual(normalize_category('code_smell'), 'quality')
-        self.assertEqual(normalize_category('type_issue'), 'type_error')
-        self.assertEqual(normalize_category('cognitive_load'), 'complexity')
-        self.assertEqual(normalize_category('style'), 'formatting')
-        self.assertEqual(normalize_category('security'), 'security')  # No change
+        self.assertEqual(normalize_category("vulnerability"), "security")
+        self.assertEqual(normalize_category("code_smell"), "quality")
+        self.assertEqual(normalize_category("type_issue"), "type_error")
+        self.assertEqual(normalize_category("cognitive_load"), "complexity")
+        self.assertEqual(normalize_category("style"), "formatting")
+        self.assertEqual(normalize_category("security"), "security")  # No change
 
     def test_generate_fingerprint(self):
         """Test fingerprint generation"""
-        fp1 = generate_fingerprint('/srv/cc/test.py', 42, 'security')
-        fp2 = generate_fingerprint('/srv/cc/test.py', 42, 'security')
-        fp3 = generate_fingerprint('/srv/cc/test.py', 43, 'security')
+        fp1 = generate_fingerprint("/srv/cc/test.py", 42, "security")
+        fp2 = generate_fingerprint("/srv/cc/test.py", 42, "security")
+        fp3 = generate_fingerprint("/srv/cc/test.py", 43, "security")
 
         # Same inputs should produce same fingerprint
         self.assertEqual(fp1, fp2)
@@ -101,29 +102,29 @@ class TestFindingUtils(unittest.TestCase):
 
         # Fingerprint should be 16 hex characters
         self.assertEqual(len(fp1), 16)
-        self.assertTrue(all(c in '0123456789abcdef' for c in fp1))
+        self.assertTrue(all(c in "0123456789abcdef" for c in fp1))
 
     def test_deduplicate_layer1_precedence(self):
         """Test Layer 1 precedence in deduplication"""
         layer1 = [
             {
-                'file': '/srv/cc/test.py',
-                'line': 42,
-                'category': 'security',
-                'message': 'SQL injection (Layer 1)',
-                'priority': 'P1',
-                'source': 'bandit'
+                "file": "/srv/cc/test.py",
+                "line": 42,
+                "category": "security",
+                "message": "SQL injection (Layer 1)",
+                "priority": "P1",
+                "source": "bandit",
             }
         ]
 
         layer3 = [
             {
-                'file': '/srv/cc/test.py',
-                'line': 42,
-                'category': 'security',
-                'message': 'SQL injection (Layer 3)',
-                'priority': 'P1',
-                'source': 'coderabbit'
+                "file": "/srv/cc/test.py",
+                "line": 42,
+                "category": "security",
+                "message": "SQL injection (Layer 3)",
+                "priority": "P1",
+                "source": "coderabbit",
             }
         ]
 
@@ -131,29 +132,29 @@ class TestFindingUtils(unittest.TestCase):
 
         # Should only have 1 finding (Layer 1 takes precedence)
         self.assertEqual(len(deduplicated), 1)
-        self.assertEqual(deduplicated[0]['message'], 'SQL injection (Layer 1)')
+        self.assertEqual(deduplicated[0]["message"], "SQL injection (Layer 1)")
 
     def test_deduplicate_complementary_findings(self):
         """Test complementary findings (same location, different categories)"""
         layer1 = [
             {
-                'file': '/srv/cc/test.py',
-                'line': 42,
-                'category': 'security',
-                'message': 'Security issue',
-                'priority': 'P1',
-                'source': 'bandit'
+                "file": "/srv/cc/test.py",
+                "line": 42,
+                "category": "security",
+                "message": "Security issue",
+                "priority": "P1",
+                "source": "bandit",
             }
         ]
 
         layer3 = [
             {
-                'file': '/srv/cc/test.py',
-                'line': 42,
-                'category': 'solid_violation',
-                'message': 'SOLID violation',
-                'priority': 'P2',
-                'source': 'coderabbit'
+                "file": "/srv/cc/test.py",
+                "line": 42,
+                "category": "solid_violation",
+                "message": "SOLID violation",
+                "priority": "P2",
+                "source": "coderabbit",
             }
         ]
 
@@ -168,21 +169,21 @@ class TestFindingUtils(unittest.TestCase):
 
         layer3 = [
             {
-                'file': '/srv/cc/test.py',
-                'line': 42,
-                'category': 'solid_violation',
-                'message': 'SOLID violation',
-                'priority': 'P2',
-                'source': 'coderabbit'
+                "file": "/srv/cc/test.py",
+                "line": 42,
+                "category": "solid_violation",
+                "message": "SOLID violation",
+                "priority": "P2",
+                "source": "coderabbit",
             },
             {
-                'file': '/srv/cc/test.py',
-                'line': 42,
-                'category': 'design_pattern',
-                'message': 'Design pattern issue',
-                'priority': 'P2',
-                'source': 'coderabbit'
-            }
+                "file": "/srv/cc/test.py",
+                "line": 42,
+                "category": "design_pattern",
+                "message": "Design pattern issue",
+                "priority": "P2",
+                "source": "coderabbit",
+            },
         ]
 
         deduplicated = deduplicate_findings(layer1, layer3)
@@ -193,63 +194,78 @@ class TestFindingUtils(unittest.TestCase):
     def test_normalize_finding(self):
         """Test finding normalization"""
         finding = {
-            'priority': 'P1',
-            'category': 'vulnerability',  # Should be normalized to 'security'
-            'source': 'bandit',
-            'file': '/srv/cc/test.py',
-            'line': 42,
-            'message': 'SQL injection',
-            'details': 'User input not sanitized',
-            'fix': 'Use parameterized queries'
+            "priority": "P1",
+            "category": "vulnerability",  # Should be normalized to 'security'
+            "source": "bandit",
+            "file": "/srv/cc/test.py",
+            "line": 42,
+            "message": "SQL injection",
+            "details": "User input not sanitized",
+            "fix": "Use parameterized queries",
         }
 
-        normalized = normalize_finding(finding, 'ROG-0001')
+        normalized = normalize_finding(finding, "ROG-0001")
 
-        self.assertEqual(normalized['id'], 'ROG-0001')
-        self.assertEqual(normalized['priority'], 'P1')
-        self.assertEqual(normalized['category'], 'security')  # Normalized
-        self.assertEqual(normalized['source_layer'], 'layer1')  # Inferred
-        self.assertEqual(normalized['source_tool'], 'bandit')
-        self.assertEqual(normalized['file'], '/srv/cc/test.py')
-        self.assertEqual(normalized['line'], 42)
-        self.assertEqual(normalized['message'], 'SQL injection')
-        self.assertIsNotNone(normalized['fingerprint'])
+        self.assertEqual(normalized["id"], "ROG-0001")
+        self.assertEqual(normalized["priority"], "P1")
+        self.assertEqual(normalized["category"], "security")  # Normalized
+        self.assertEqual(normalized["source_layer"], "layer1")  # Inferred
+        self.assertEqual(normalized["source_tool"], "bandit")
+        self.assertEqual(normalized["file"], "/srv/cc/test.py")
+        self.assertEqual(normalized["line"], 42)
+        self.assertEqual(normalized["message"], "SQL injection")
+        self.assertIsNotNone(normalized["fingerprint"])
 
     def test_normalize_findings_batch(self):
         """Test batch normalization with ID assignment"""
         findings = [
-            {'message': 'Issue 1', 'file': 'test1.py', 'category': 'security', 'source': 'bandit'},
-            {'message': 'Issue 2', 'file': 'test2.py', 'category': 'quality', 'source': 'pylint'},
-            {'message': 'Issue 3', 'file': 'test3.py', 'category': 'types', 'source': 'mypy'}
+            {
+                "message": "Issue 1",
+                "file": "test1.py",
+                "category": "security",
+                "source": "bandit",
+            },
+            {
+                "message": "Issue 2",
+                "file": "test2.py",
+                "category": "quality",
+                "source": "pylint",
+            },
+            {
+                "message": "Issue 3",
+                "file": "test3.py",
+                "category": "types",
+                "source": "mypy",
+            },
         ]
 
         normalized = normalize_findings(findings)
 
         self.assertEqual(len(normalized), 3)
-        self.assertEqual(normalized[0]['id'], 'ROG-0001')
-        self.assertEqual(normalized[1]['id'], 'ROG-0002')
-        self.assertEqual(normalized[2]['id'], 'ROG-0003')
+        self.assertEqual(normalized[0]["id"], "ROG-0001")
+        self.assertEqual(normalized[1]["id"], "ROG-0002")
+        self.assertEqual(normalized[2]["id"], "ROG-0003")
 
     def test_generate_summary(self):
         """Test summary generation"""
         findings = [
-            {'priority': 'P0', 'category': 'security', 'source_layer': 'layer1'},
-            {'priority': 'P1', 'category': 'quality', 'source_layer': 'layer1'},
-            {'priority': 'P1', 'category': 'quality', 'source_layer': 'layer1'},
-            {'priority': 'P2', 'category': 'complexity', 'source_layer': 'layer3'},
+            {"priority": "P0", "category": "security", "source_layer": "layer1"},
+            {"priority": "P1", "category": "quality", "source_layer": "layer1"},
+            {"priority": "P1", "category": "quality", "source_layer": "layer1"},
+            {"priority": "P2", "category": "complexity", "source_layer": "layer3"},
         ]
 
         summary = generate_summary(findings)
 
-        self.assertEqual(summary['total_issues'], 4)
-        self.assertEqual(summary['by_priority']['P0'], 1)
-        self.assertEqual(summary['by_priority']['P1'], 2)
-        self.assertEqual(summary['by_priority']['P2'], 1)
-        self.assertEqual(summary['by_category']['security'], 1)
-        self.assertEqual(summary['by_category']['quality'], 2)
-        self.assertEqual(summary['by_layer']['layer1'], 3)
-        self.assertEqual(summary['by_layer']['layer3'], 1)
-        self.assertIn('Found 4 issues',  summary['summary_text'])
+        self.assertEqual(summary["total_issues"], 4)
+        self.assertEqual(summary["by_priority"]["P0"], 1)
+        self.assertEqual(summary["by_priority"]["P1"], 2)
+        self.assertEqual(summary["by_priority"]["P2"], 1)
+        self.assertEqual(summary["by_category"]["security"], 1)
+        self.assertEqual(summary["by_category"]["quality"], 2)
+        self.assertEqual(summary["by_layer"]["layer1"], 3)
+        self.assertEqual(summary["by_layer"]["layer3"], 1)
+        self.assertIn("Found 4 issues", summary["summary_text"])
 
 
 class TestDefectLogger(unittest.TestCase):
@@ -258,7 +274,7 @@ class TestDefectLogger(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures"""
         self.temp_dir = tempfile.mkdtemp()
-        self.log_path = Path(self.temp_dir) / 'test-defects.md'
+        self.log_path = Path(self.temp_dir) / "test-defects.md"
 
     def tearDown(self):
         """Clean up test fixtures"""
@@ -269,17 +285,17 @@ class TestDefectLogger(unittest.TestCase):
         """Test creating new defect log"""
         findings = [
             {
-                'id': 'ROG-0001',
-                'priority': 'P1',
-                'category': 'security',
-                'source_layer': 'layer1',
-                'source_tool': 'bandit',
-                'file': '/srv/cc/test.py',
-                'line': 42,
-                'message': 'SQL injection',
-                'details': 'User input not sanitized',
-                'fix': 'Use parameterized queries',
-                'fingerprint': 'a1b2c3d4e5f6a7b8'
+                "id": "ROG-0001",
+                "priority": "P1",
+                "category": "security",
+                "source_layer": "layer1",
+                "source_tool": "bandit",
+                "file": "/srv/cc/test.py",
+                "line": 42,
+                "message": "SQL injection",
+                "details": "User input not sanitized",
+                "fix": "Use parameterized queries",
+                "fingerprint": "a1b2c3d4e5f6a7b8",
             }
         ]
 
@@ -291,28 +307,28 @@ class TestDefectLogger(unittest.TestCase):
 
         # Verify log content
         content = self.log_path.read_text()
-        self.assertIn('# Defect Log - Test Project', content)
-        self.assertIn('### DEF-0001:', content)
-        self.assertIn('SQL injection', content)
-        self.assertIn('[P1]', content)
-        self.assertIn('bandit', content)
+        self.assertIn("# Defect Log - Test Project", content)
+        self.assertIn("### DEF-0001:", content)
+        self.assertIn("SQL injection", content)
+        self.assertIn("[P1]", content)
+        self.assertIn("bandit", content)
 
     def test_append_defects(self):
         """Test appending defects to existing log"""
         # Create initial log
         findings1 = [
             {
-                'id': 'ROG-0001',
-                'priority': 'P1',
-                'category': 'security',
-                'source_layer': 'layer1',
-                'source_tool': 'bandit',
-                'file': '/srv/cc/test.py',
-                'line': 42,
-                'message': 'Issue 1',
-                'details': 'Details 1',
-                'fix': 'Fix 1',
-                'fingerprint': 'a1b2c3d4e5f6a7b8'
+                "id": "ROG-0001",
+                "priority": "P1",
+                "category": "security",
+                "source_layer": "layer1",
+                "source_tool": "bandit",
+                "file": "/srv/cc/test.py",
+                "line": 42,
+                "message": "Issue 1",
+                "details": "Details 1",
+                "fix": "Fix 1",
+                "fingerprint": "a1b2c3d4e5f6a7b8",
             }
         ]
 
@@ -322,17 +338,17 @@ class TestDefectLogger(unittest.TestCase):
         # Append new findings
         findings2 = [
             {
-                'id': 'ROG-0002',
-                'priority': 'P2',
-                'category': 'quality',
-                'source_layer': 'layer1',
-                'source_tool': 'pylint',
-                'file': '/srv/cc/test.py',
-                'line': 100,
-                'message': 'Issue 2',
-                'details': 'Details 2',
-                'fix': 'Fix 2',
-                'fingerprint': 'b2c3d4e5f6a7b8c9'
+                "id": "ROG-0002",
+                "priority": "P2",
+                "category": "quality",
+                "source_layer": "layer1",
+                "source_tool": "pylint",
+                "file": "/srv/cc/test.py",
+                "line": 100,
+                "message": "Issue 2",
+                "details": "Details 2",
+                "fix": "Fix 2",
+                "fingerprint": "b2c3d4e5f6a7b8c9",
             }
         ]
 
@@ -342,26 +358,26 @@ class TestDefectLogger(unittest.TestCase):
 
         # Verify both defects in log
         content = self.log_path.read_text()
-        self.assertIn('DEF-0001', content)
-        self.assertIn('DEF-0002', content)
-        self.assertIn('Issue 1', content)
-        self.assertIn('Issue 2', content)
+        self.assertIn("DEF-0001", content)
+        self.assertIn("DEF-0002", content)
+        self.assertIn("Issue 1", content)
+        self.assertIn("Issue 2", content)
 
     def test_deduplication_on_append(self):
         """Test that duplicate fingerprints are skipped on append"""
         findings1 = [
             {
-                'id': 'ROG-0001',
-                'priority': 'P1',
-                'category': 'security',
-                'source_layer': 'layer1',
-                'source_tool': 'bandit',
-                'file': '/srv/cc/test.py',
-                'line': 42,
-                'message': 'Issue 1',
-                'details': 'Details 1',
-                'fix': 'Fix 1',
-                'fingerprint': 'a1b2c3d4e5f6a7b8'
+                "id": "ROG-0001",
+                "priority": "P1",
+                "category": "security",
+                "source_layer": "layer1",
+                "source_tool": "bandit",
+                "file": "/srv/cc/test.py",
+                "line": 42,
+                "message": "Issue 1",
+                "details": "Details 1",
+                "fix": "Fix 1",
+                "fingerprint": "a1b2c3d4e5f6a7b8",
             }
         ]
 
@@ -371,17 +387,17 @@ class TestDefectLogger(unittest.TestCase):
         # Try to append same fingerprint
         findings2 = [
             {
-                'id': 'ROG-0002',
-                'priority': 'P1',
-                'category': 'security',
-                'source_layer': 'layer1',
-                'source_tool': 'bandit',
-                'file': '/srv/cc/test.py',
-                'line': 42,
-                'message': 'Issue 1 (duplicate)',
-                'details': 'Details 1',
-                'fix': 'Fix 1',
-                'fingerprint': 'a1b2c3d4e5f6a7b8'  # Same fingerprint
+                "id": "ROG-0002",
+                "priority": "P1",
+                "category": "security",
+                "source_layer": "layer1",
+                "source_tool": "bandit",
+                "file": "/srv/cc/test.py",
+                "line": 42,
+                "message": "Issue 1 (duplicate)",
+                "details": "Details 1",
+                "fix": "Fix 1",
+                "fingerprint": "a1b2c3d4e5f6a7b8",  # Same fingerprint
             }
         ]
 
@@ -393,26 +409,44 @@ class TestDefectLogger(unittest.TestCase):
         """Test getting defect summary"""
         findings = [
             {
-                'id': 'ROG-0001', 'priority': 'P0',
-                'category': 'security',
-                'source_layer': 'layer1', 'source_tool': 'bandit',
-                'file': 'test.py', 'line': 1, 'message': 'Critical',
-                'details': '', 'fix': '', 'fingerprint': 'a1'
+                "id": "ROG-0001",
+                "priority": "P0",
+                "category": "security",
+                "source_layer": "layer1",
+                "source_tool": "bandit",
+                "file": "test.py",
+                "line": 1,
+                "message": "Critical",
+                "details": "",
+                "fix": "",
+                "fingerprint": "a1",
             },
             {
-                'id': 'ROG-0002', 'priority': 'P1',
-                'category': 'quality',
-                'source_layer': 'layer1', 'source_tool': 'pylint',
-                'file': 'test.py', 'line': 2, 'message': 'High',
-                'details': '', 'fix': '', 'fingerprint': 'b2'
+                "id": "ROG-0002",
+                "priority": "P1",
+                "category": "quality",
+                "source_layer": "layer1",
+                "source_tool": "pylint",
+                "file": "test.py",
+                "line": 2,
+                "message": "High",
+                "details": "",
+                "fix": "",
+                "fingerprint": "b2",
             },
             {
-                'id': 'ROG-0003', 'priority': 'P2',
-                'category': 'types',
-                'source_layer': 'layer1', 'source_tool': 'mypy',
-                'file': 'test.py', 'line': 3, 'message': 'Medium',
-                'details': '', 'fix': '', 'fingerprint': 'c3'
-            }
+                "id": "ROG-0003",
+                "priority": "P2",
+                "category": "types",
+                "source_layer": "layer1",
+                "source_tool": "mypy",
+                "file": "test.py",
+                "line": 3,
+                "message": "Medium",
+                "details": "",
+                "fix": "",
+                "fingerprint": "c3",
+            },
         ]
 
         logger = DefectLogger(str(self.log_path))
@@ -420,21 +454,27 @@ class TestDefectLogger(unittest.TestCase):
 
         summary = logger.get_defect_summary()
 
-        self.assertEqual(summary['P0'], 1)
-        self.assertEqual(summary['P1'], 1)
-        self.assertEqual(summary['P2'], 1)
-        self.assertEqual(summary['P3'], 0)
-        self.assertEqual(summary['P4'], 0)
+        self.assertEqual(summary["P0"], 1)
+        self.assertEqual(summary["P1"], 1)
+        self.assertEqual(summary["P2"], 1)
+        self.assertEqual(summary["P3"], 0)
+        self.assertEqual(summary["P4"], 0)
 
     def test_clear_log(self):
         """Test clearing log file"""
         findings = [
             {
-                'id': 'ROG-0001', 'priority': 'P1',
-                'category': 'security',
-                'source_layer': 'layer1', 'source_tool': 'bandit',
-                'file': 'test.py', 'line': 1, 'message': 'Issue',
-                'details': '', 'fix': '', 'fingerprint': 'a1'
+                "id": "ROG-0001",
+                "priority": "P1",
+                "category": "security",
+                "source_layer": "layer1",
+                "source_tool": "bandit",
+                "file": "test.py",
+                "line": 1,
+                "message": "Issue",
+                "details": "",
+                "fix": "",
+                "fingerprint": "a1",
             }
         ]
 
@@ -468,6 +508,6 @@ def run_tests():
     return 0 if result.wasSuccessful() else 1
 
 
-if __name__ == '__main__':
-    sys_exit_code = run_tests()
-    exit(sys_exit_code)
+if __name__ == "__main__":
+    SYS_EXIT_CODE = run_tests()
+    sys.exit(SYS_EXIT_CODE)

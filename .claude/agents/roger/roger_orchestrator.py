@@ -55,16 +55,12 @@ Layer: POC4 CodeRabbit Layer 2 (Orchestration)
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 # Import Roger components
 from layer3_stub import CodeRabbitLayer3
 from defect_logger import DefectLogger
-from finding_utils import (
-    deduplicate_findings,
-    normalize_findings,
-    generate_summary
-)
+from finding_utils import deduplicate_findings, normalize_findings, generate_summary
 
 # Import Layer 1 linter aggregator
 # Note: linter_aggregator.py will be made importable in next step
@@ -75,7 +71,7 @@ except ImportError:
     LinterAggregator = None
 
 
-class RogerOrchestrator:
+class RogerOrchestrator:  # pylint: disable=too-few-public-methods
     """
     Roger orchestrator: Coordinates Layer 1 + Layer 3 analysis.
 
@@ -114,7 +110,7 @@ class RogerOrchestrator:
         project_name: str = "Unknown Project",
         enable_layer3: bool = False,
         defect_log_path: str = "./DEFECT-LOG.md",
-        verbose: bool = False
+        verbose: bool = False,
     ):
         """
         Initialize Roger orchestrator.
@@ -177,7 +173,7 @@ class RogerOrchestrator:
             print()
 
         # Phase 1: Run Layer 1 (linter aggregator)
-        layer1_findings = self._run_layer1(file_paths)
+        layer1_findings, layer1_success = self._run_layer1(file_paths)
 
         # Phase 2: Run Layer 3 (CodeRabbit) if enabled
         layer3_findings = []
@@ -214,9 +210,7 @@ class RogerOrchestrator:
             print("📝 Creating defect log...")
 
         defects_created = self.defect_logger.create_defect_log(
-            normalized_findings,
-            self.project_name,
-            overwrite=True
+            normalized_findings, self.project_name, overwrite=True
         )
 
         if self.verbose:
@@ -228,25 +222,25 @@ class RogerOrchestrator:
         execution_time = time.time() - start_time
 
         # Determine layers used
-        layers_used = ['layer1']
+        layers_used = ["layer1"]
         if self.enable_layer3 and len(layer3_findings) > 0:
-            layers_used.append('layer3')
+            layers_used.append("layer3")
 
         # Determine status
         status = "success"
-        if len(layer1_findings) == 0:
-            status = "partial_failure"  # Layer 1 failed to produce results
+        if not layer1_success:
+            status = "partial_failure"  # Layer 1 execution failed
 
         # Generate result
-        result = {
-            'findings': normalized_findings,
-            'summary': summary,
-            'defects_created': defects_created,
-            'execution_time': round(execution_time, 2),
-            'layers_used': layers_used,
-            'status': status,
-            'project_name': self.project_name,
-            'defect_log_path': str(self.defect_log_path)
+        analysis_result = {
+            "findings": normalized_findings,
+            "summary": summary,
+            "defects_created": defects_created,
+            "execution_time": round(execution_time, 2),
+            "layers_used": layers_used,
+            "status": status,
+            "project_name": self.project_name,
+            "defect_log_path": str(self.defect_log_path),
         }
 
         if self.verbose:
@@ -255,9 +249,11 @@ class RogerOrchestrator:
             print(f"  Execution time: {execution_time:.2f}s")
             print()
 
-        return result
+        return analysis_result
 
-    def _run_layer1(self, file_paths: List[str]) -> List[Dict]:
+    def _run_layer1(  # pylint: disable=too-many-branches
+        self, file_paths: List[str]
+    ) -> Tuple[List[Dict], bool]:
         """
         Run Layer 1 linter aggregator.
 
@@ -269,11 +265,15 @@ class RogerOrchestrator:
             file_paths: List of file paths or directories to analyze
 
         Returns:
-            List of findings from Layer 1 linters (empty list on error)
+            Tuple of (findings, success_flag):
+                - findings: List of findings from Layer 1 linters
+                - success_flag: True if execution succeeded, False if failed
 
         Examples:
             >>> orchestrator = RogerOrchestrator()
-            >>> findings = orchestrator._run_layer1(['/srv/cc/project'])
+            >>> findings, success = orchestrator._run_layer1(['/srv/cc/project'])
+            >>> success
+            True
             >>> len(findings) > 0
             True
         """
@@ -295,65 +295,67 @@ class RogerOrchestrator:
             if LinterAggregator:
                 # Direct import available
                 aggregator = LinterAggregator(
-                    path=analysis_path,
-                    verbose=self.verbose,
-                    parallel=True
+                    path=analysis_path, verbose=self.verbose, parallel=True
                 )
-                result = aggregator.run_all()
+                aggregator_result = aggregator.run_all()
 
                 # Extract issues from AggregatedResult
-                layer1_findings = [issue.to_dict() for issue in result.issues]
+                layer1_findings = [
+                    issue.to_dict() for issue in aggregator_result.issues
+                ]
 
                 if self.verbose:
                     print(f"  ✓ Layer 1 complete: {len(layer1_findings)} issues")
                     print()
 
-                return layer1_findings
+                return layer1_findings, True
 
-            else:
-                # Fallback: Run as subprocess
-                import subprocess
-                import json
+            # Fallback: Run as subprocess
+            import subprocess  # pylint: disable=import-outside-toplevel
+            import json as json_module  # pylint: disable=import-outside-toplevel
 
-                linter_path = Path(__file__).parent / 'linter_aggregator.py'
+            linter_path = Path(__file__).parent / "linter_aggregator.py"
 
-                result = subprocess.run(
-                    [
-                        sys.executable,
-                        str(linter_path),
-                        '--path',
-                        analysis_path,
-                        '--format',
-                        'json'
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=600
-                )
+            subprocess_result = subprocess.run(
+                [
+                    sys.executable,
+                    str(linter_path),
+                    "--path",
+                    analysis_path,
+                    "--format",
+                    "json",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=600,
+                check=False,
+            )
 
-                # 0 = clean, 1 = issues found
-                if result.returncode in [0, 1]:
-                    data = json.loads(result.stdout)
-                    layer1_findings = data.get('issues', [])
+            # 0 = clean, 1 = issues found
+            if subprocess_result.returncode in [0, 1]:
+                data = json_module.loads(subprocess_result.stdout)
+                layer1_findings = data.get("issues", [])
 
-                    if self.verbose:
-                        layer1_count = len(layer1_findings)
-                        print(f"  ✓ Layer 1 complete: {layer1_count} issues")
-                        print()
+                if self.verbose:
+                    layer1_count = len(layer1_findings)
+                    print(f"  ✓ Layer 1 complete: {layer1_count} issues")
+                    print()
 
-                    return layer1_findings
-                else:
-                    if self.verbose:
-                        rc = result.returncode
-                        print(f"  ✗ Layer 1 failed with exit code {rc}")
-                        print()
-                    return []
+                return layer1_findings, True
 
-        except Exception as e:
+            if self.verbose:
+                print(f"  ⚠️  Layer 1 failed (exit code {subprocess_result.returncode})")
+                if subprocess_result.stderr:
+                    print(f"  Error: {subprocess_result.stderr}")
+                print()
+
+            return [], False
+
+        except (subprocess.TimeoutExpired, RuntimeError, OSError) as e:
             if self.verbose:
                 print(f"  ✗ Layer 1 exception: {e}")
                 print()
-            return []
+            return [], False
 
     def _run_layer3(self, file_paths: List[str]) -> List[Dict]:
         """
@@ -386,7 +388,7 @@ class RogerOrchestrator:
 
             return findings
 
-        except Exception as e:
+        except (RuntimeError, OSError, ValueError) as e:
             if self.verbose:
                 print(f"  ✗ Layer 3 exception: {e}")
                 print()
@@ -398,7 +400,7 @@ def roger_orchestrator(
     project_name: str = "Unknown Project",
     enable_layer3: bool = False,
     defect_log_path: str = "./DEFECT-LOG.md",
-    verbose: bool = False
+    verbose: bool = False,
 ) -> Dict:
     """
     Convenience function to run Roger orchestrator.
@@ -428,51 +430,38 @@ def roger_orchestrator(
         project_name=project_name,
         enable_layer3=enable_layer3,
         defect_log_path=defect_log_path,
-        verbose=verbose
+        verbose=verbose,
     )
 
     return orchestrator.analyze(file_paths)
 
 
 # Example usage
-if __name__ == '__main__':
+if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description='Roger Orchestrator - Layer 1 + Layer 3 Code Analysis'
+        description="Roger Orchestrator - Layer 1 + Layer 3 Code Analysis"
     )
     parser.add_argument(
-        '--path',
-        nargs='+',
-        default=['.'],
-        help='File paths or directories to analyze'
+        "--path", nargs="+", default=["."], help="File paths or directories to analyze"
     )
     parser.add_argument(
-        '--project',
-        default='Unknown Project',
-        help='Project name for defect tracking'
+        "--project", default="Unknown Project", help="Project name for defect tracking"
     )
     parser.add_argument(
-        '--enable-layer3',
-        action='store_true',
-        help='Enable CodeRabbit Layer 3 (default: disabled)'
+        "--enable-layer3",
+        action="store_true",
+        help="Enable CodeRabbit Layer 3 (default: disabled)",
     )
     parser.add_argument(
-        '--defect-log',
-        default='./DEFECT-LOG.md',
-        help='Path to defect log file'
+        "--defect-log", default="./DEFECT-LOG.md", help="Path to defect log file"
     )
     parser.add_argument(
-        '--verbose',
-        '-v',
-        action='store_true',
-        help='Enable verbose output'
+        "--verbose", "-v", action="store_true", help="Enable verbose output"
     )
     parser.add_argument(
-        '--format',
-        choices=['json', 'text'],
-        default='text',
-        help='Output format'
+        "--format", choices=["json", "text"], default="text", help="Output format"
     )
 
     args = parser.parse_args()
@@ -483,17 +472,18 @@ if __name__ == '__main__':
         project_name=args.project,
         enable_layer3=args.enable_layer3,
         defect_log_path=args.defect_log,
-        verbose=args.verbose
+        verbose=args.verbose,
     )
 
     # Output results
-    if args.format == 'json':
+    if args.format == "json":
         import json
+
         print(json.dumps(result, indent=2))
     else:
-        print("="*80)
+        print("=" * 80)
         print("ROGER ORCHESTRATOR RESULTS")
-        print("="*80)
+        print("=" * 80)
         print()
         print(f"Project: {result['project_name']}")
         print(f"Status: {result['status']}")
@@ -510,9 +500,12 @@ if __name__ == '__main__':
     # 0 = success (no critical/high issues)
     # 1 = issues found (critical or high)
     # 2 = execution error
-    if result['status'] != 'success':
+    if result["status"] != "success":
         sys.exit(2)
-    elif result['summary']['by_priority']['P0'] > 0 or result['summary']['by_priority']['P1'] > 0:
+    elif (
+        result["summary"]["by_priority"]["P0"] > 0
+        or result["summary"]["by_priority"]["P1"] > 0
+    ):
         sys.exit(1)
     else:
         sys.exit(0)
