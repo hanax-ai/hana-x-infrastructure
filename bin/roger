@@ -1,0 +1,298 @@
+#!/usr/bin/env python3
+"""
+Roger CLI Wrapper - Production Implementation
+
+Command-line interface for Roger orchestrator.
+Provides user-friendly access to Layer 1 + Layer 3 code analysis.
+
+Usage:
+  roger --path /path/to/project
+  roger --path /path/to/project --enable-layer3
+  roger --path /path/to/project --project my-project --defect-log ./DEFECTS.md
+
+Features:
+- Multiple output formats (text, json)
+- Verbose mode
+- Layer 3 enable/disable
+- Custom defect log path
+- Color-coded output
+- Exit codes for CI/CD integration
+
+Author: Eric Johnson (Senior Developer)
+Date: 2025-11-10
+Version: 1.0
+Layer: POC4 CodeRabbit Layer 2 (Orchestration)
+"""
+
+import sys
+import os
+import json
+import argparse
+from pathlib import Path
+
+# Add Roger directory to Python path
+ROGER_DIR = Path(__file__).parent.parent / '.claude' / 'agents' / 'roger'
+sys.path.insert(0, str(ROGER_DIR))
+
+try:
+    from roger_orchestrator import roger_orchestrator
+except ImportError as e:
+    print(f"❌ Error: Unable to import Roger orchestrator: {e}", file=sys.stderr)
+    print(f"   Roger directory: {ROGER_DIR}", file=sys.stderr)
+    sys.exit(2)
+
+
+# ANSI color codes
+class Colors:
+    RED = '\033[91m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    BLUE = '\033[94m'
+    MAGENTA = '\033[95m'
+    CYAN = '\033[96m'
+    WHITE = '\033[97m'
+    BOLD = '\033[1m'
+    RESET = '\033[0m'
+
+
+def print_color(text: str, color: str = Colors.WHITE, bold: bool = False):
+    """Print colored text to terminal"""
+    if bold:
+        print(f"{Colors.BOLD}{color}{text}{Colors.RESET}")
+    else:
+        print(f"{color}{text}{Colors.RESET}")
+
+
+def print_banner():
+    """Print Roger banner"""
+    banner = """
+╔═══════════════════════════════════════════════════════════════════════════╗
+║                                                                           ║
+║   ██████╗  ██████╗  ██████╗ ███████╗██████╗     ██████╗ ███████╗██╗   ██╗║
+║   ██╔══██╗██╔═══██╗██╔════╝ ██╔════╝██╔══██╗    ██╔══██╗██╔════╝██║   ██║║
+║   ██████╔╝██║   ██║██║  ███╗█████╗  ██████╔╝    ██████╔╝█████╗  ██║   ██║║
+║   ██╔══██╗██║   ██║██║   ██║██╔══╝  ██╔══██╗    ██╔══██╗██╔══╝  ╚██╗ ██╔╝║
+║   ██║  ██║╚██████╔╝╚██████╔╝███████╗██║  ██║    ██║  ██║███████╗ ╚████╔╝ ║
+║   ╚═╝  ╚═╝ ╚═════╝  ╚═════╝ ╚══════╝╚═╝  ╚═╝    ╚═╝  ╚═╝╚══════╝  ╚═══╝  ║
+║                                                                           ║
+║   Code Review Orchestrator - Layer 1 + Layer 3 Analysis                  ║
+║   Version 1.0 | POC4 CodeRabbit Integration                              ║
+║                                                                           ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+"""
+    print_color(banner, Colors.CYAN)
+
+
+def format_text_output(result: dict) -> None:
+    """Format and print text output"""
+    print()
+    print_color("="*80, Colors.BLUE, bold=True)
+    print_color("ROGER ORCHESTRATOR RESULTS", Colors.BLUE, bold=True)
+    print_color("="*80, Colors.BLUE, bold=True)
+    print()
+
+    # Project info
+    print_color(f"📁 Project: ", Colors.WHITE, bold=True)
+    print(f"   {result['project_name']}")
+    print()
+
+    # Status
+    status_color = Colors.GREEN if result['status'] == 'success' else Colors.RED
+    print_color(f"📊 Status: ", Colors.WHITE, bold=True)
+    print_color(f"   {result['status']}", status_color)
+    print()
+
+    # Execution info
+    print_color(f"⏱️  Execution time: ", Colors.WHITE, bold=True)
+    print(f"   {result['execution_time']:.2f} seconds")
+    print()
+
+    print_color(f"🔧 Layers used: ", Colors.WHITE, bold=True)
+    print(f"   {', '.join(result['layers_used'])}")
+    print()
+
+    # Summary
+    summary = result['summary']
+    print_color(f"📈 Summary:", Colors.WHITE, bold=True)
+    print(f"   {summary['summary_text']}")
+    print()
+
+    # Priority breakdown
+    print_color(f"🎯 Priority Breakdown:", Colors.WHITE, bold=True)
+    priority_colors = {
+        'P0': Colors.RED,
+        'P1': Colors.YELLOW,
+        'P2': Colors.MAGENTA,
+        'P3': Colors.CYAN,
+        'P4': Colors.WHITE
+    }
+    for priority, count in summary['by_priority'].items():
+        if count > 0:
+            color = priority_colors.get(priority, Colors.WHITE)
+            print_color(f"   {priority}: {count}", color)
+    print()
+
+    # Category breakdown
+    if summary['by_category']:
+        print_color(f"📂 Category Breakdown:", Colors.WHITE, bold=True)
+        for category, count in sorted(summary['by_category'].items()):
+            print(f"   {category}: {count}")
+        print()
+
+    # Layer breakdown
+    print_color(f"🔀 Layer Breakdown:", Colors.WHITE, bold=True)
+    for layer, count in summary['by_layer'].items():
+        print(f"   {layer}: {count}")
+    print()
+
+    # Defect log
+    print_color(f"📝 Defect Log:", Colors.WHITE, bold=True)
+    print(f"   Path: {result['defect_log_path']}")
+    print(f"   Defects created: {result['defects_created']}")
+    print()
+
+    # Exit message
+    critical_high = summary['by_priority']['P0'] + summary['by_priority']['P1']
+    if critical_high > 0:
+        print_color(f"⚠️  WARNING: {critical_high} critical/high priority issue(s) found!", Colors.YELLOW, bold=True)
+        print_color(f"   Review defect log for details: {result['defect_log_path']}", Colors.YELLOW)
+    else:
+        print_color(f"✅ No critical/high priority issues found!", Colors.GREEN, bold=True)
+
+    print()
+
+
+def main():
+    """Main entry point"""
+    parser = argparse.ArgumentParser(
+        description='Roger Code Review Orchestrator - Layer 1 + Layer 3 Analysis',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Basic usage (Layer 1 only, current directory)
+  roger
+
+  # Analyze specific directory
+  roger --path /srv/cc/my-project
+
+  # With project name and custom defect log
+  roger --path /srv/cc/my-project --project "My Project" --defect-log ./MY-DEFECTS.md
+
+  # Enable Layer 3 (CodeRabbit integration)
+  roger --path /srv/cc/my-project --enable-layer3
+
+  # JSON output for CI/CD integration
+  roger --path /srv/cc/my-project --format json
+
+  # Verbose mode
+  roger --path /srv/cc/my-project --verbose
+
+Exit Codes:
+  0  Success (no critical/high issues)
+  1  Issues found (critical or high priority)
+  2  Execution error
+
+Layers:
+  Layer 1: Python linters (bandit, pylint, mypy, radon, black, pytest)
+  Layer 3: CodeRabbit AI enhancement (optional, requires --enable-layer3)
+
+Defect Log:
+  Generated in Markdown format at ./DEFECT-LOG.md (default)
+  Contains detailed defect information with priority, category, source, and fix suggestions
+        """
+    )
+
+    parser.add_argument(
+        '--path',
+        nargs='+',
+        default=['.'],
+        help=(
+            'File paths or directories to analyze '
+            '(default: current directory)'
+        )
+    )
+    parser.add_argument(
+        '--project',
+        default='Unknown Project',
+        help=(
+            'Project name for defect tracking '
+            '(default: "Unknown Project")'
+        )
+    )
+    parser.add_argument(
+        '--enable-layer3',
+        action='store_true',
+        help='Enable CodeRabbit Layer 3 (default: disabled in Phase 2)'
+    )
+    parser.add_argument(
+        '--defect-log',
+        default='./DEFECT-LOG.md',
+        help='Path to defect log file (default: ./DEFECT-LOG.md)'
+    )
+    parser.add_argument(
+        '--format',
+        choices=['json', 'text'],
+        default='text',
+        help='Output format: json or text (default: text)'
+    )
+    parser.add_argument(
+        '--verbose',
+        '-v',
+        action='store_true',
+        help='Enable verbose output'
+    )
+    parser.add_argument(
+        '--no-banner',
+        action='store_true',
+        help='Suppress banner output'
+    )
+
+    args = parser.parse_args()
+
+    # Print banner (unless suppressed or JSON output)
+    if not args.no_banner and args.format == 'text':
+        print_banner()
+
+    # Run orchestrator
+    try:
+        result = roger_orchestrator(
+            file_paths=args.path,
+            project_name=args.project,
+            enable_layer3=args.enable_layer3,
+            defect_log_path=args.defect_log,
+            verbose=args.verbose
+        )
+
+        # Output results
+        if args.format == 'json':
+            print(json.dumps(result, indent=2))
+        else:
+            format_text_output(result)
+
+        # Exit code
+        if result['status'] != 'success':
+            sys.exit(2)
+        elif (
+            result['summary']['by_priority']['P0'] > 0
+            or result['summary']['by_priority']['P1'] > 0
+        ):
+            sys.exit(1)
+        else:
+            sys.exit(0)
+
+    except KeyboardInterrupt:
+        print()
+        print_color("⚠️  Analysis interrupted by user", Colors.YELLOW)
+        sys.exit(2)
+
+    except Exception as e:
+        print_color(f"❌ Error: {e}", Colors.RED, bold=True)
+        if args.verbose:
+            import traceback
+            print()
+            traceback.print_exc()
+        sys.exit(2)
+
+
+if __name__ == '__main__':
+    main()
