@@ -478,6 +478,21 @@ class LinterAggregator:  # pylint: disable=too-many-instance-attributes,too-few-
             self.linters_failed.append("radon")
             return None
 
+    def _process_radon_results(self, result) -> bool:
+        """Process radon command results"""
+        if not result.stdout:
+            return True
+
+        data = self._parse_radon_output(result.stdout)
+        if data is None:
+            return False
+
+        for file_path, functions in data.items():
+            if isinstance(functions, list):
+                for func_data in functions:
+                    self._process_radon_function(file_path, func_data)
+        return True
+
     def _run_radon(self):
         """Run radon complexity analyzer"""
         print("  → Running radon (complexity)...", file=sys.stderr)
@@ -490,16 +505,7 @@ class LinterAggregator:  # pylint: disable=too-many-instance-attributes,too-few-
                 check=False,
             )
 
-            if result.stdout:
-                data = self._parse_radon_output(result.stdout)
-                if data is None:
-                    return
-
-                for file_path, functions in data.items():
-                    if isinstance(functions, list):
-                        for func_data in functions:
-                            self._process_radon_function(file_path, func_data)
-
+            self._process_radon_results(result)
             self.linters_run.append("radon")
             issue_count = len([i for i in self.issues if i.source == "radon"])
             print(f"    ✓ radon: {issue_count} issues found", file=sys.stderr)
@@ -543,6 +549,28 @@ class LinterAggregator:  # pylint: disable=too-many-instance-attributes,too-few-
             )
             self._add_issue(issue)
 
+    def _count_files_needing_format(self, stdout: str) -> int:
+        """Count files that need formatting from black output"""
+        return len(
+            [line for line in stdout.split("\n") if line.startswith("would reformat")]
+        )
+
+    def _create_black_issue(self, files_needing_format: int) -> None:
+        """Create issue for black formatting"""
+        self.issue_counter += 1
+        issue = Issue(
+            id=f"BLK-{self.issue_counter:04d}",
+            priority=Priority.LOW,  # Formatting is low priority
+            category=Category.FORMATTING,
+            source="black",
+            file=str(self.path),
+            line=None,
+            message=f"{files_needing_format} file(s) need formatting",
+            details="Code formatting does not match Black style",
+            fix=f"Run: {LINTER_PATHS['black']} {self.path}",
+        )
+        self._add_issue(issue)
+
     def _run_black(self):
         """Run black formatter check"""
         print("  → Running black (formatting)...", file=sys.stderr)
@@ -557,30 +585,9 @@ class LinterAggregator:  # pylint: disable=too-many-instance-attributes,too-few-
 
             # Black returns non-zero if formatting needed
             if result.returncode != 0 and result.stdout:
-                # Count files that need formatting
-                files_needing_format = len(
-                    [
-                        line
-                        for line in result.stdout.split("\n")
-                        if line.startswith("would reformat")
-                    ]
-                )
-
+                files_needing_format = self._count_files_needing_format(result.stdout)
                 if files_needing_format > 0:
-                    self.issue_counter += 1
-
-                    issue = Issue(
-                        id=f"BLK-{self.issue_counter:04d}",
-                        priority=Priority.LOW,  # Formatting is low priority
-                        category=Category.FORMATTING,
-                        source="black",
-                        file=str(self.path),
-                        line=None,
-                        message=f"{files_needing_format} file(s) need formatting",
-                        details="Code formatting does not match Black style",
-                        fix=f"Run: {LINTER_PATHS['black']} {self.path}",
-                    )
-                    self._add_issue(issue)
+                    self._create_black_issue(files_needing_format)
 
             self.linters_run.append("black")
             issue_count = len([i for i in self.issues if i.source == "black"])
@@ -638,6 +645,38 @@ class LinterAggregator:  # pylint: disable=too-many-instance-attributes,too-few-
         )
         self._add_issue(issue)
 
+    def _execute_pytest(self) -> None:
+        """Execute pytest and generate coverage report"""
+        subprocess.run(  # nosec B603
+            [
+                LINTER_PATHS["pytest"],
+                "--cov=.",
+                "--cov-report=json",
+                "--quiet",
+                "--tb=no",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            cwd=self.path,
+            check=False,
+        )
+
+    def _process_pytest_coverage(self) -> None:
+        """Process pytest coverage results"""
+        coverage_file = self.path / "coverage.json"
+        if not coverage_file.exists():
+            return
+
+        total_coverage = self._parse_coverage_data(coverage_file)
+        if total_coverage is None:
+            return
+
+        if total_coverage < 80:
+            self._create_coverage_issue(total_coverage)
+
+        coverage_file.unlink(missing_ok=True)
+
     def _run_pytest(self):
         """Run pytest coverage check"""
         print("  → Running pytest (coverage)...", file=sys.stderr)
@@ -651,31 +690,8 @@ class LinterAggregator:  # pylint: disable=too-many-instance-attributes,too-few-
                 self.linters_run.append("pytest")
                 return
 
-            subprocess.run(  # nosec B603
-                [
-                    LINTER_PATHS["pytest"],
-                    "--cov=.",
-                    "--cov-report=json",
-                    "--quiet",
-                    "--tb=no",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=300,
-                cwd=self.path,
-                check=False,
-            )
-
-            coverage_file = self.path / "coverage.json"
-            if coverage_file.exists():
-                total_coverage = self._parse_coverage_data(coverage_file)
-                if total_coverage is None:
-                    return
-
-                if total_coverage < 80:
-                    self._create_coverage_issue(total_coverage)
-
-                coverage_file.unlink(missing_ok=True)
+            self._execute_pytest()
+            self._process_pytest_coverage()
 
             self.linters_run.append("pytest")
             issue_count = len([i for i in self.issues if i.source == "pytest"])
@@ -798,9 +814,14 @@ class LinterAggregator:  # pylint: disable=too-many-instance-attributes,too-few-
         critical, high, medium, low, info = self._count_issues_by_priority()
         issues_by_category = self._count_issues_by_category()
 
-        summary = self._generate_summary(
-            len(self.issues), critical, high, medium, low, info
-        )
+        counts = {
+            "critical": critical,
+            "high": high,
+            "medium": medium,
+            "low": low,
+            "info": info,
+        }
+        summary = self._generate_summary(len(self.issues), counts)
 
         status = "completed_with_failures" if self.linters_failed else "completed"
 
@@ -820,34 +841,82 @@ class LinterAggregator:  # pylint: disable=too-many-instance-attributes,too-few-
             summary=summary,
         )
 
-    def _generate_summary(  # pylint: disable=too-many-arguments,too-many-positional-arguments
-        self, total: int, critical: int, high: int, medium: int, low: int, info: int
-    ) -> str:
+    def _add_priority_parts(self, parts: List[str], counts: Dict[str, int]) -> None:
+        """Add priority counts to summary parts"""
+        if counts["critical"] > 0:
+            parts.append(f"🔴 {counts['critical']} critical (P0)")
+        if counts["high"] > 0:
+            parts.append(f"🟡 {counts['high']} high (P1)")
+        if counts["medium"] > 0:
+            parts.append(f"🟠 {counts['medium']} medium (P2)")
+        if counts["low"] > 0:
+            parts.append(f"⚪ {counts['low']} low (P3)")
+        if counts["info"] > 0:
+            parts.append(f"ℹ️  {counts['info']} info (P4)")
+
+    def _add_warning_message(self, parts: List[str], counts: Dict[str, int]) -> None:
+        """Add warning message for critical/high issues"""
+        if counts["critical"] > 0:
+            parts.append("⚠️  Critical issues must be fixed immediately.")
+        elif counts["high"] > 0:
+            parts.append("⚠️  High-priority issues should be fixed soon.")
+
+    def _generate_summary(self, total: int, counts: Dict[str, int]) -> str:
         """Generate human-readable summary"""
         if total == 0:
             return "✅ No issues found. All linters passed."
 
         parts = [f"Found {total} issue{'s' if total != 1 else ''}:"]
-        if critical > 0:
-            parts.append(f"🔴 {critical} critical (P0)")
-        if high > 0:
-            parts.append(f"🟡 {high} high (P1)")
-        if medium > 0:
-            parts.append(f"🟠 {medium} medium (P2)")
-        if low > 0:
-            parts.append(f"⚪ {low} low (P3)")
-        if info > 0:
-            parts.append(f"ℹ️  {info} info (P4)")
-
-        if critical > 0:
-            parts.append("⚠️  Critical issues must be fixed immediately.")
-        elif high > 0:
-            parts.append("⚠️  High-priority issues should be fixed soon.")
-
+        self._add_priority_parts(parts, counts)
+        self._add_warning_message(parts, counts)
         return " | ".join(parts)
 
 
-def main():  # pylint: disable=too-many-branches
+def _output_json_results(result: AggregatedResult) -> None:
+    """Output results in JSON format"""
+    print("\n" + "=" * 80)
+    print("LINTER AGGREGATOR RESULTS (JSON)")
+    print("=" * 80)
+    print(json.dumps(result.to_dict(), indent=2))
+
+
+def _output_text_results(result: AggregatedResult) -> None:
+    """Output results in text format"""
+    print("\n" + "=" * 80)
+    print("LINTER AGGREGATOR RESULTS")
+    print("=" * 80)
+    print(f"\n{result.summary}\n")
+    print(f"Execution time: {result.execution_time_seconds}s")
+    print(f"Linters run: {', '.join(result.linters_run)}")
+    if result.linters_failed:
+        print(f"⚠️  Linters failed: {', '.join(result.linters_failed)}")
+
+    if result.issues:
+        print("\nIssues by Category:")
+        for category, count in sorted(result.issues_by_category.items()):
+            print(f"  {category}: {count}")
+
+        print("\nDetailed Issues:\n")
+        for issue in result.issues:
+            print(
+                f"{issue.priority.value} [{issue.source}] {issue.file}:{issue.line or '?'}"
+            )
+            print(f"  {issue.message}")
+            if issue.fix:
+                print(f"  💡 Fix: {issue.fix}")
+            print()
+
+
+def _determine_exit_code(result: AggregatedResult) -> int:
+    """Determine exit code based on results"""
+    if result.linters_failed:
+        return 2
+    if result.critical_issues > 0 or result.high_issues > 0:
+        return 1
+    return 0
+
+
+def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(
         description="Roger Linter Aggregator - Production Implementation",
@@ -887,46 +956,12 @@ Examples:
 
         # Output results
         if args.format == "json":
-            print("\n" + "=" * 80)
-            print("LINTER AGGREGATOR RESULTS (JSON)")
-            print("=" * 80)
-            print(json.dumps(result.to_dict(), indent=2))
+            _output_json_results(result)
         else:
-            # Text format
-            print("\n" + "=" * 80)
-            print("LINTER AGGREGATOR RESULTS")
-            print("=" * 80)
-            print(f"\n{result.summary}\n")
-            print(f"Execution time: {result.execution_time_seconds}s")
-            print(f"Linters run: {', '.join(result.linters_run)}")
-            if result.linters_failed:
-                print(f"⚠️  Linters failed: {', '.join(result.linters_failed)}")
+            _output_text_results(result)
 
-            if result.issues:
-                print("\nIssues by Category:")
-                for category, count in sorted(result.issues_by_category.items()):
-                    print(f"  {category}: {count}")
-
-                print("\nDetailed Issues:\n")
-                for issue in result.issues:
-                    print(
-                        f"{issue.priority.value} [{issue.source}] {issue.file}:{issue.line or '?'}"
-                    )
-                    print(f"  {issue.message}")
-                    if issue.fix:
-                        print(f"  💡 Fix: {issue.fix}")
-                    print()
-
-        # Exit code
-        # 0 = success (no critical/high issues)
-        # 1 = issues found (critical or high)
-        # 2 = linters failed
-        if result.linters_failed:
-            sys.exit(2)
-        elif result.critical_issues > 0 or result.high_issues > 0:
-            sys.exit(1)
-        else:
-            sys.exit(0)
+        # Exit with appropriate code
+        sys.exit(_determine_exit_code(result))
 
     except SecurityError as e:
         print(f"\n❌ Security Error: {e}", file=sys.stderr)

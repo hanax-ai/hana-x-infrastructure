@@ -264,7 +264,9 @@ class DefectLogger:
     def _count_priorities(self, findings: List[Dict]) -> Dict[str, int]:
         """Count findings by priority"""
         priorities = ["P0", "P1", "P2", "P3", "P4"]
-        return {p: len([f for f in findings if f.get("priority") == p]) for p in priorities}
+        return {
+            p: len([f for f in findings if f.get("priority") == p]) for p in priorities
+        }
 
     def _generate_summary_table(self, findings: List[Dict]) -> str:
         """

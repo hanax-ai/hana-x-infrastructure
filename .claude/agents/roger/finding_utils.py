@@ -342,9 +342,7 @@ def _count_by_priority(findings: List[Dict]) -> Dict[str, int]:
         {'P0': 0, 'P1': 2, 'P2': 1, 'P3': 0, 'P4': 0}
     """
     priorities = ["P0", "P1", "P2", "P3", "P4"]
-    return {
-        p: len([f for f in findings if f.get("priority") == p]) for p in priorities
-    }
+    return {p: len([f for f in findings if f.get("priority") == p]) for p in priorities}
 
 
 def _count_by_category(findings: List[Dict]) -> Dict[str, int]:

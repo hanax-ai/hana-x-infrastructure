@@ -55,9 +55,10 @@ Layer: POC4 CodeRabbit Layer 2 (Orchestration)
 import sys
 import time
 import subprocess  # nosec B404  # pylint: disable=unused-import
-import json as json_module
+import json
 from pathlib import Path
 from typing import Dict, List, Tuple
+from dataclasses import dataclass
 
 # Import Roger components
 from layer3_stub import CodeRabbitLayer3
@@ -71,6 +72,17 @@ try:
 except ImportError:
     # Fallback: Run as subprocess (temporary solution for Phase 2)
     LinterAggregator = None
+
+
+@dataclass
+class RogerConfig:
+    """Configuration for Roger orchestrator"""
+
+    project_name: str = "Unknown Project"
+    enable_layer3: bool = False
+    defect_log_path: str = "./DEFECT-LOG.md"
+    verbose: bool = False
+    json_format: bool = False
 
 
 class RogerOrchestrator:  # pylint: disable=too-few-public-methods
@@ -107,35 +119,43 @@ class RogerOrchestrator:  # pylint: disable=too-few-public-methods
         'success'
     """
 
-    def __init__(
-        self,
-        project_name: str = "Unknown Project",
-        enable_layer3: bool = False,
-        defect_log_path: str = "./DEFECT-LOG.md",
-        verbose: bool = False,
-        json_format: bool = False,
-    ):
+    def __init__(self, roger_config: RogerConfig):
         """
         Initialize Roger orchestrator.
 
         Args:
-            project_name: Project name for defect tracking
-            enable_layer3: Enable CodeRabbit Layer 3 (default: False,
-                stubbed in Phase 2)
-            defect_log_path: Path to defect log file
-                (default: ./DEFECT-LOG.md)
-            verbose: Enable verbose output (default: False)
-            json_format: If True, send all output to stderr (default: False)
+            roger_config: RogerConfig instance with all configuration settings
         """
-        self.project_name = project_name
-        self.enable_layer3 = enable_layer3
-        self.defect_log_path = defect_log_path
-        self.verbose = verbose
-        self.json_format = json_format
+        self.config = roger_config
 
         # Initialize components
-        self.layer3 = CodeRabbitLayer3() if enable_layer3 else None
-        self.defect_logger = DefectLogger(defect_log_path)
+        self.layer3 = CodeRabbitLayer3() if roger_config.enable_layer3 else None
+        self.defect_logger = DefectLogger(roger_config.defect_log_path)
+
+    @property
+    def project_name(self) -> str:
+        """Get project name from config"""
+        return self.config.project_name
+
+    @property
+    def enable_layer3(self) -> bool:
+        """Get enable_layer3 from config"""
+        return self.config.enable_layer3
+
+    @property
+    def defect_log_path(self) -> str:
+        """Get defect_log_path from config"""
+        return self.config.defect_log_path
+
+    @property
+    def verbose(self) -> bool:
+        """Get verbose from config"""
+        return self.config.verbose
+
+    @property
+    def json_format(self) -> bool:
+        """Get json_format from config"""
+        return self.config.json_format
 
     def _print_analysis_start(self, file_paths: List[str]) -> None:
         """Print analysis start information"""
@@ -268,9 +288,80 @@ class RogerOrchestrator:  # pylint: disable=too-few-public-methods
             "defect_log_path": str(self.defect_log_path),
         }
 
-    def _run_layer1(  # pylint: disable=too-many-branches
-        self, file_paths: List[str]
-    ) -> Tuple[List[Dict], bool]:
+    def _determine_analysis_path(self, file_paths: List[str]) -> str:
+        """Determine the path to analyze from file paths"""
+        if not file_paths:
+            return "."
+        if len(file_paths) == 1:
+            return file_paths[0]
+        # Multiple files - analyze their common parent directory
+        return str(Path(file_paths[0]).parent)
+
+    def _run_layer1_direct_import(self, analysis_path: str) -> Tuple[List[Dict], bool]:
+        """Run Layer 1 using direct import"""
+        aggregator = LinterAggregator(
+            path=analysis_path, verbose=self.verbose, parallel=True
+        )
+        aggregator_result = aggregator.run_all()
+
+        # Extract issues from AggregatedResult
+        layer1_findings = [issue.to_dict() for issue in aggregator_result.issues]
+
+        if self.verbose:
+            output_file = sys.stderr if self.json_format else sys.stdout
+            print(
+                f"  ✓ Layer 1 complete: {len(layer1_findings)} issues",
+                file=output_file,
+            )
+            print(file=output_file)
+
+        return layer1_findings, True
+
+    def _run_layer1_subprocess(self, analysis_path: str) -> Tuple[List[Dict], bool]:
+        """Run Layer 1 using subprocess fallback"""
+        linter_path = Path(__file__).parent / "linter_aggregator.py"
+
+        subprocess_result = subprocess.run(  # nosec B603
+            [
+                sys.executable,
+                str(linter_path),
+                "--path",
+                analysis_path,
+                "--format",
+                "json",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=600,
+            check=False,
+        )
+
+        # 0 = clean, 1 = issues found
+        if subprocess_result.returncode in [0, 1]:
+            data = json.loads(subprocess_result.stdout)
+            layer1_findings = data.get("issues", [])
+
+            if self.verbose:
+                output_file = sys.stderr if self.json_format else sys.stdout
+                layer1_count = len(layer1_findings)
+                print(f"  ✓ Layer 1 complete: {layer1_count} issues", file=output_file)
+                print(file=output_file)
+
+            return layer1_findings, True
+
+        if self.verbose:
+            output_file = sys.stderr if self.json_format else sys.stdout
+            print(
+                f"  ⚠️  Layer 1 failed (exit code {subprocess_result.returncode})",
+                file=output_file,
+            )
+            if subprocess_result.stderr:
+                print(f"  Error: {subprocess_result.stderr}", file=output_file)
+            print(file=output_file)
+
+        return [], False
+
+    def _run_layer1(self, file_paths: List[str]) -> Tuple[List[Dict], bool]:
         """
         Run Layer 1 linter aggregator.
 
@@ -298,84 +389,12 @@ class RogerOrchestrator:  # pylint: disable=too-few-public-methods
             output_file = sys.stderr if self.json_format else sys.stdout
             print("🔧 Running Layer 1 (Linter Aggregator)...", file=output_file)
 
-        # Determine path to analyze
-        # If multiple paths, analyze first one (simple implementation for Phase 2)
-        # Phase 3 could support multi-path analysis
-        if not file_paths:
-            analysis_path = "."
-        elif len(file_paths) == 1:
-            analysis_path = file_paths[0]
-        else:
-            # Multiple files - analyze their common parent directory
-            analysis_path = str(Path(file_paths[0]).parent)
+        analysis_path = self._determine_analysis_path(file_paths)
 
         try:
             if LinterAggregator:
-                # Direct import available
-                aggregator = LinterAggregator(
-                    path=analysis_path, verbose=self.verbose, parallel=True
-                )
-                aggregator_result = aggregator.run_all()
-
-                # Extract issues from AggregatedResult
-                layer1_findings = [
-                    issue.to_dict() for issue in aggregator_result.issues
-                ]
-
-                if self.verbose:
-                    output_file = sys.stderr if self.json_format else sys.stdout
-                    print(
-                        f"  ✓ Layer 1 complete: {len(layer1_findings)} issues",
-                        file=output_file,
-                    )
-                    print(file=output_file)
-
-                return layer1_findings, True
-
-            # Fallback: Run as subprocess
-            linter_path = Path(__file__).parent / "linter_aggregator.py"
-
-            subprocess_result = subprocess.run(  # nosec B603
-                [
-                    sys.executable,
-                    str(linter_path),
-                    "--path",
-                    analysis_path,
-                    "--format",
-                    "json",
-                ],
-                capture_output=True,
-                text=True,
-                timeout=600,
-                check=False,
-            )
-
-            # 0 = clean, 1 = issues found
-            if subprocess_result.returncode in [0, 1]:
-                data = json_module.loads(subprocess_result.stdout)
-                layer1_findings = data.get("issues", [])
-
-                if self.verbose:
-                    output_file = sys.stderr if self.json_format else sys.stdout
-                    layer1_count = len(layer1_findings)
-                    print(
-                        f"  ✓ Layer 1 complete: {layer1_count} issues", file=output_file
-                    )
-                    print(file=output_file)
-
-                return layer1_findings, True
-
-            if self.verbose:
-                output_file = sys.stderr if self.json_format else sys.stdout
-                print(
-                    f"  ⚠️  Layer 1 failed (exit code {subprocess_result.returncode})",
-                    file=output_file,
-                )
-                if subprocess_result.stderr:
-                    print(f"  Error: {subprocess_result.stderr}", file=output_file)
-                print(file=output_file)
-
-            return [], False
+                return self._run_layer1_direct_import(analysis_path)
+            return self._run_layer1_subprocess(analysis_path)
 
         except (subprocess.TimeoutExpired, RuntimeError, OSError) as e:
             if self.verbose:
@@ -426,12 +445,7 @@ class RogerOrchestrator:  # pylint: disable=too-few-public-methods
 
 
 def roger_orchestrator(
-    file_paths: List[str],
-    project_name: str = "Unknown Project",
-    enable_layer3: bool = False,
-    defect_log_path: str = "./DEFECT-LOG.md",
-    verbose: bool = False,
-    json_format: bool = False,
+    file_paths: List[str], roger_config: RogerConfig = None, **kwargs
 ) -> Dict:
     """
     Convenience function to run Roger orchestrator.
@@ -441,11 +455,13 @@ def roger_orchestrator(
 
     Args:
         file_paths: List of file paths or directories to analyze
-        project_name: Project name for defect tracking
-        enable_layer3: Enable CodeRabbit Layer 3 (default: False)
-        defect_log_path: Path to defect log file (default: ./DEFECT-LOG.md)
-        verbose: Enable verbose output (default: False)
-        json_format: If True, send all output to stderr (default: False)
+        roger_config: RogerConfig instance (if None, kwargs will be used)
+        **kwargs: Individual config parameters (used if roger_config is None)
+            - project_name: Project name for defect tracking
+            - enable_layer3: Enable CodeRabbit Layer 3 (default: False)
+            - defect_log_path: Path to defect log file (default: ./DEFECT-LOG.md)
+            - verbose: Enable verbose output (default: False)
+            - json_format: If True, send all output to stderr (default: False)
 
     Returns:
         Dictionary with analysis results (see RogerOrchestrator.analyze)
@@ -458,14 +474,10 @@ def roger_orchestrator(
         ... )
         >>> print(f"Total issues: {result['summary']['total_issues']}")
     """
-    orchestrator = RogerOrchestrator(
-        project_name=project_name,
-        enable_layer3=enable_layer3,
-        defect_log_path=defect_log_path,
-        verbose=verbose,
-        json_format=json_format,
-    )
+    if roger_config is None:
+        roger_config = RogerConfig(**kwargs)
 
+    orchestrator = RogerOrchestrator(roger_config=roger_config)
     return orchestrator.analyze(file_paths)
 
 
@@ -499,19 +511,20 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    # Run orchestrator
-    result = roger_orchestrator(
-        file_paths=args.path,
+    # Create config
+    config = RogerConfig(
         project_name=args.project,
         enable_layer3=args.enable_layer3,
         defect_log_path=args.defect_log,
         verbose=args.verbose,
+        json_format=(args.format == "json"),
     )
+
+    # Run orchestrator
+    result = roger_orchestrator(file_paths=args.path, roger_config=config)
 
     # Output results
     if args.format == "json":
-        import json
-
         print(json.dumps(result, indent=2))
     else:
         print("=" * 80)
