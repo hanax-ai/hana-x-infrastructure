@@ -22,15 +22,16 @@ Layer: POC4 CodeRabbit Layer 1 (Foundation)
 """
 
 import json
-import subprocess
+import subprocess  # nosec B404 - Required for executing linters securely with validated paths
 import sys
 import re
 import hashlib
+import tempfile
 from pathlib import Path
 import time
 import argparse
 import traceback
-from typing import List, Dict, Optional, Set
+from typing import List, Dict, Optional, Set, Tuple
 from dataclasses import dataclass, asdict
 from enum import Enum
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -167,7 +168,11 @@ class LinterAggregator:  # pylint: disable=too-many-instance-attributes,too-few-
                 raise SecurityError(f"Path does not exist: {path}")
 
             # Check it's within allowed directories
-            allowed_prefixes = [Path("/srv/cc/"), Path("/home/agent0/"), Path("/tmp/")]
+            allowed_prefixes = [
+                Path("/srv/cc/"),
+                Path("/home/agent0/"),
+                Path(tempfile.gettempdir()),
+            ]
 
             if not any(
                 str(resolved).startswith(str(prefix)) for prefix in allowed_prefixes
@@ -234,9 +239,13 @@ class LinterAggregator:  # pylint: disable=too-many-instance-attributes,too-few-
         """
         start_time = time.time()
 
-        print("🔍 Running linter suite...")
+        # Send output to stderr if we're in a non-verbose subprocess mode
+        # (this will be captured properly by the orchestrator)
+        print("🔍 Running linter suite...", file=sys.stderr)
         if self.parallel:
-            print("  ⚡ Parallel execution enabled (ThreadPoolExecutor)")
+            print(
+                "  ⚡ Parallel execution enabled (ThreadPoolExecutor)", file=sys.stderr
+            )
 
         if self.parallel:
             self._run_parallel()
@@ -283,9 +292,9 @@ class LinterAggregator:  # pylint: disable=too-many-instance-attributes,too-few-
 
     def _run_bandit(self):
         """Run bandit security scanner"""
-        print("  → Running bandit (security)...")
+        print("  → Running bandit (security)...", file=sys.stderr)
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603
                 [LINTER_PATHS["bandit"], "-r", str(self.path), "-f", "json"],
                 capture_output=True,
                 text=True,
@@ -329,21 +338,21 @@ class LinterAggregator:  # pylint: disable=too-many-instance-attributes,too-few-
 
             self.linters_run.append("bandit")
             issue_count = len([i for i in self.issues if i.source == "bandit"])
-            print(f"    ✓ bandit: {issue_count} issues found")
+            print(f"    ✓ bandit: {issue_count} issues found", file=sys.stderr)
 
         except subprocess.TimeoutExpired:
-            print("    ✗ bandit timed out")
+            print("    ✗ bandit timed out", file=sys.stderr)
             self.linters_failed.append("bandit")
         except (RuntimeError, OSError, json.JSONDecodeError) as e:
             if self.verbose:
-                print(f"    ✗ bandit failed: {e}")
+                print(f"    ✗ bandit failed: {e}", file=sys.stderr)
             self.linters_failed.append("bandit")
 
     def _run_pylint(self):
         """Run pylint code quality checker"""
-        print("  → Running pylint (quality)...")
+        print("  → Running pylint (quality)...", file=sys.stderr)
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603
                 [
                     LINTER_PATHS["pylint"],
                     str(self.path),
@@ -395,21 +404,21 @@ class LinterAggregator:  # pylint: disable=too-many-instance-attributes,too-few-
 
             self.linters_run.append("pylint")
             issue_count = len([i for i in self.issues if i.source == "pylint"])
-            print(f"    ✓ pylint: {issue_count} issues found")
+            print(f"    ✓ pylint: {issue_count} issues found", file=sys.stderr)
 
         except subprocess.TimeoutExpired:
-            print("    ✗ pylint timed out")
+            print("    ✗ pylint timed out", file=sys.stderr)
             self.linters_failed.append("pylint")
         except (RuntimeError, OSError, json.JSONDecodeError) as e:
             if self.verbose:
-                print(f"    ✗ pylint failed: {e}")
+                print(f"    ✗ pylint failed: {e}", file=sys.stderr)
             self.linters_failed.append("pylint")
 
     def _run_mypy(self):
         """Run mypy type checker (regex-based parsing)"""
-        print("  → Running mypy (types)...")
+        print("  → Running mypy (types)...", file=sys.stderr)
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603
                 [LINTER_PATHS["mypy"], str(self.path)],
                 capture_output=True,
                 text=True,
@@ -449,22 +458,31 @@ class LinterAggregator:  # pylint: disable=too-many-instance-attributes,too-few-
 
             self.linters_run.append("mypy")
             issue_count = len([i for i in self.issues if i.source == "mypy"])
-            print(f"    ✓ mypy: {issue_count} issues found")
+            print(f"    ✓ mypy: {issue_count} issues found", file=sys.stderr)
 
         except subprocess.TimeoutExpired:
-            print("    ✗ mypy timed out")
+            print("    ✗ mypy timed out", file=sys.stderr)
             self.linters_failed.append("mypy")
         except (RuntimeError, OSError) as e:
             if self.verbose:
-                print(f"    ✗ mypy failed: {e}")
+                print(f"    ✗ mypy failed: {e}", file=sys.stderr)
             self.linters_failed.append("mypy")
+
+    def _parse_radon_output(self, stdout: str) -> Optional[Dict]:
+        """Parse radon JSON output"""
+        try:
+            return json.loads(stdout)
+        except json.JSONDecodeError as e:
+            if self.verbose:
+                print(f"    ✗ radon JSON parse error: {e}", file=sys.stderr)
+            self.linters_failed.append("radon")
+            return None
 
     def _run_radon(self):
         """Run radon complexity analyzer"""
-        print("  → Running radon (complexity)...")
+        print("  → Running radon (complexity)...", file=sys.stderr)
         try:
-            # Cyclomatic complexity
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603
                 [LINTER_PATHS["radon"], "cc", str(self.path), "-j"],
                 capture_output=True,
                 text=True,
@@ -473,31 +491,25 @@ class LinterAggregator:  # pylint: disable=too-many-instance-attributes,too-few-
             )
 
             if result.stdout:
-                try:
-                    data = json.loads(result.stdout)
-                except json.JSONDecodeError as e:
-                    if self.verbose:
-                        print(f"    ✗ radon JSON parse error: {e}")
-                    self.linters_failed.append("radon")
+                data = self._parse_radon_output(result.stdout)
+                if data is None:
                     return
 
                 for file_path, functions in data.items():
-                    if not isinstance(functions, list):
-                        continue
-
-                    for func_data in functions:
-                        self._process_radon_function(file_path, func_data)
+                    if isinstance(functions, list):
+                        for func_data in functions:
+                            self._process_radon_function(file_path, func_data)
 
             self.linters_run.append("radon")
             issue_count = len([i for i in self.issues if i.source == "radon"])
-            print(f"    ✓ radon: {issue_count} issues found")
+            print(f"    ✓ radon: {issue_count} issues found", file=sys.stderr)
 
         except subprocess.TimeoutExpired:
-            print("    ✗ radon timed out")
+            print("    ✗ radon timed out", file=sys.stderr)
             self.linters_failed.append("radon")
-        except (RuntimeError, OSError, json.JSONDecodeError) as e:
+        except (RuntimeError, OSError) as e:
             if self.verbose:
-                print(f"    ✗ radon failed: {e}")
+                print(f"    ✗ radon failed: {e}", file=sys.stderr)
             self.linters_failed.append("radon")
 
     def _process_radon_function(self, file_path: str, func_data: Dict) -> None:
@@ -533,9 +545,9 @@ class LinterAggregator:  # pylint: disable=too-many-instance-attributes,too-few-
 
     def _run_black(self):
         """Run black formatter check"""
-        print("  → Running black (formatting)...")
+        print("  → Running black (formatting)...", file=sys.stderr)
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603
                 [LINTER_PATHS["black"], str(self.path), "--check", "--diff"],
                 capture_output=True,
                 text=True,
@@ -572,35 +584,74 @@ class LinterAggregator:  # pylint: disable=too-many-instance-attributes,too-few-
 
             self.linters_run.append("black")
             issue_count = len([i for i in self.issues if i.source == "black"])
-            print(f"    ✓ black: {issue_count} issues found")
+            print(f"    ✓ black: {issue_count} issues found", file=sys.stderr)
 
         except subprocess.TimeoutExpired:
-            print("    ✗ black timed out")
+            print("    ✗ black timed out", file=sys.stderr)
             self.linters_failed.append("black")
         except (RuntimeError, OSError) as e:
             if self.verbose:
-                print(f"    ✗ black failed: {e}")
+                print(f"    ✗ black failed: {e}", file=sys.stderr)
             self.linters_failed.append("black")
+
+    def _has_pytest_config(self) -> bool:
+        """Check if pytest is configured"""
+        return (
+            (self.path / "tests").exists()
+            or (self.path / "test").exists()
+            or (self.path / "pytest.ini").exists()
+        )
+
+    def _parse_coverage_data(self, coverage_file: Path) -> Optional[float]:
+        """Parse coverage percentage from coverage.json"""
+        try:
+            with open(coverage_file, encoding="utf-8") as f:
+                data = json.load(f)
+            return data["totals"]["percent_covered"]
+        except (json.JSONDecodeError, KeyError, FileNotFoundError) as e:
+            if self.verbose:
+                print(f"    ✗ pytest coverage parse error: {e}")
+            self.linters_failed.append("pytest")
+            return None
+
+    def _create_coverage_issue(self, total_coverage: float) -> None:
+        """Create issue for low test coverage"""
+        self.issue_counter += 1
+
+        if total_coverage < 50:
+            priority = Priority.CRITICAL
+        elif total_coverage < 70:
+            priority = Priority.HIGH
+        else:
+            priority = Priority.MEDIUM
+
+        issue = Issue(
+            id=f"COV-{self.issue_counter:04d}",
+            priority=priority,
+            category=Category.TESTING,
+            source="pytest",
+            file="Overall",
+            line=None,
+            message=f"Test coverage is {total_coverage:.1f}% (target: ≥80%)",
+            details=f"Missing coverage: {100 - total_coverage:.1f}%",
+            fix="Add unit tests for uncovered code",
+        )
+        self._add_issue(issue)
 
     def _run_pytest(self):
         """Run pytest coverage check"""
-        print("  → Running pytest (coverage)...")
+        print("  → Running pytest (coverage)...", file=sys.stderr)
         try:
-            # Check if pytest is configured (look for tests directory or pytest.ini)
-            has_tests = (
-                (self.path / "tests").exists()
-                or (self.path / "test").exists()
-                or (self.path / "pytest.ini").exists()
-                or (self.path / "pyproject.toml").exists()
-            )
-
-            if not has_tests:
+            if not self._has_pytest_config():
                 if self.verbose:
-                    print("    → No tests directory found, skipping pytest")
+                    print(
+                        "    → No tests directory found, skipping pytest",
+                        file=sys.stderr,
+                    )
                 self.linters_run.append("pytest")
                 return
 
-            subprocess.run(
+            subprocess.run(  # nosec B603
                 [
                     LINTER_PATHS["pytest"],
                     "--cov=.",
@@ -615,64 +666,27 @@ class LinterAggregator:  # pylint: disable=too-many-instance-attributes,too-few-
                 check=False,
             )
 
-            # Look for coverage.json (pytest-cov output)
             coverage_file = self.path / "coverage.json"
             if coverage_file.exists():
-                try:
-                    with open(coverage_file, encoding="utf-8") as f:
-                        data = json.load(f)
-
-                    total_coverage = data["totals"]["percent_covered"]
-
-                    # Report if coverage below threshold
-                    if total_coverage < 80:
-                        self.issue_counter += 1
-
-                        if total_coverage < 50:
-                            priority = Priority.CRITICAL
-                        elif total_coverage < 70:
-                            priority = Priority.HIGH
-                        else:
-                            priority = Priority.MEDIUM
-
-                        issue = Issue(
-                            id=f"COV-{self.issue_counter:04d}",
-                            priority=priority,
-                            category=Category.TESTING,
-                            source="pytest",
-                            file="Overall",
-                            line=None,
-                            message=f"Test coverage is {total_coverage:.1f}% (target: ≥80%)",
-                            details=f"Missing coverage: {100 - total_coverage:.1f}%",
-                            fix="Add unit tests for uncovered code",
-                        )
-                        self._add_issue(issue)
-
-                    # Clean up coverage file
-                    coverage_file.unlink(missing_ok=True)
-
-                except (json.JSONDecodeError, KeyError, FileNotFoundError) as e:
-                    if self.verbose:
-                        print(f"    ✗ pytest coverage parse error: {e}")
-                    self.linters_failed.append("pytest")
+                total_coverage = self._parse_coverage_data(coverage_file)
+                if total_coverage is None:
                     return
+
+                if total_coverage < 80:
+                    self._create_coverage_issue(total_coverage)
+
+                coverage_file.unlink(missing_ok=True)
 
             self.linters_run.append("pytest")
             issue_count = len([i for i in self.issues if i.source == "pytest"])
-            print(f"    ✓ pytest: {issue_count} issues found")
+            print(f"    ✓ pytest: {issue_count} issues found", file=sys.stderr)
 
         except subprocess.TimeoutExpired:
-            print("    ✗ pytest timed out")
+            print("    ✗ pytest timed out", file=sys.stderr)
             self.linters_failed.append("pytest")
-        except (
-            RuntimeError,
-            OSError,
-            json.JSONDecodeError,
-            KeyError,
-            FileNotFoundError,
-        ) as e:
+        except (RuntimeError, OSError) as e:
             if self.verbose:
-                print(f"    ✗ pytest failed: {e}")
+                print(f"    ✗ pytest failed: {e}", file=sys.stderr)
             self.linters_failed.append("pytest")
 
     def _suggest_security_fix(self, test_id: str) -> str:
@@ -744,9 +758,8 @@ class LinterAggregator:  # pylint: disable=too-many-instance-attributes,too-few-
         }
         return fixes.get(test_id, "Review security best practices for this issue")
 
-    def _aggregate(self, execution_time: float) -> AggregatedResult:
-        """Aggregate all issues"""
-        # Sort issues by priority (Critical first)
+    def _sort_issues_by_priority(self) -> None:
+        """Sort issues by priority (Critical first)"""
         priority_order = {
             Priority.CRITICAL: 0,
             Priority.HIGH: 1,
@@ -758,30 +771,38 @@ class LinterAggregator:  # pylint: disable=too-many-instance-attributes,too-few-
             key=lambda x: (priority_order.get(x.priority, 5), x.file, x.line or 0)
         )
 
-        # Count by priority
-        critical = len([i for i in self.issues if i.priority == Priority.CRITICAL])
-        high = len([i for i in self.issues if i.priority == Priority.HIGH])
-        medium = len([i for i in self.issues if i.priority == Priority.MEDIUM])
-        low = len([i for i in self.issues if i.priority == Priority.LOW])
-        info = len([i for i in self.issues if i.priority == Priority.INFO])
+    def _count_issues_by_priority(self) -> Tuple[int, int, int, int, int]:
+        """Count issues by priority level"""
+        priorities = [
+            Priority.CRITICAL,
+            Priority.HIGH,
+            Priority.MEDIUM,
+            Priority.LOW,
+            Priority.INFO,
+        ]
+        counts = [len([i for i in self.issues if i.priority == p]) for p in priorities]
+        return tuple(counts)
 
-        # Count by category
+    def _count_issues_by_category(self) -> Dict[str, int]:
+        """Count issues by category"""
         issues_by_category = {}
         for category in Category:
             count = len([i for i in self.issues if i.category == category])
             if count > 0:
                 issues_by_category[category.value] = count
+        return issues_by_category
 
-        # Generate summary
+    def _aggregate(self, execution_time: float) -> AggregatedResult:
+        """Aggregate all issues"""
+        self._sort_issues_by_priority()
+        critical, high, medium, low, info = self._count_issues_by_priority()
+        issues_by_category = self._count_issues_by_category()
+
         summary = self._generate_summary(
             len(self.issues), critical, high, medium, low, info
         )
 
-        # Status
-        if self.linters_failed:
-            status = "completed_with_failures"
-        else:
-            status = "completed"
+        status = "completed_with_failures" if self.linters_failed else "completed"
 
         return AggregatedResult(
             status=status,

@@ -54,6 +54,8 @@ Layer: POC4 CodeRabbit Layer 2 (Orchestration)
 
 import sys
 import time
+import subprocess  # nosec B404  # pylint: disable=unused-import
+import json as json_module
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -111,6 +113,7 @@ class RogerOrchestrator:  # pylint: disable=too-few-public-methods
         enable_layer3: bool = False,
         defect_log_path: str = "./DEFECT-LOG.md",
         verbose: bool = False,
+        json_format: bool = False,
     ):
         """
         Initialize Roger orchestrator.
@@ -122,15 +125,75 @@ class RogerOrchestrator:  # pylint: disable=too-few-public-methods
             defect_log_path: Path to defect log file
                 (default: ./DEFECT-LOG.md)
             verbose: Enable verbose output (default: False)
+            json_format: If True, send all output to stderr (default: False)
         """
         self.project_name = project_name
         self.enable_layer3 = enable_layer3
         self.defect_log_path = defect_log_path
         self.verbose = verbose
+        self.json_format = json_format
 
         # Initialize components
         self.layer3 = CodeRabbitLayer3() if enable_layer3 else None
         self.defect_logger = DefectLogger(defect_log_path)
+
+    def _print_analysis_start(self, file_paths: List[str]) -> None:
+        """Print analysis start information"""
+        if self.verbose:
+            output_file = sys.stderr if self.json_format else sys.stdout
+            print("🔍 Roger Orchestrator - Starting analysis", file=output_file)
+            print(f"  Project: {self.project_name}", file=output_file)
+            print(f"  Files: {len(file_paths)}", file=output_file)
+            print(
+                f"  Layer 3: {'Enabled' if self.enable_layer3 else 'Disabled'}",
+                file=output_file,
+            )
+            print(file=output_file)
+
+    def _deduplicate_and_normalize(
+        self, layer1_findings: List[Dict], layer3_findings: List[Dict]
+    ) -> List[Dict]:
+        """Deduplicate and normalize findings"""
+        if self.verbose:
+            output_file = sys.stderr if self.json_format else sys.stdout
+            print("🔀 Deduplicating findings...", file=output_file)
+            print(f"  Layer 1: {len(layer1_findings)} findings", file=output_file)
+            print(f"  Layer 3: {len(layer3_findings)} findings", file=output_file)
+
+        all_findings = deduplicate_findings(layer1_findings, layer3_findings)
+
+        if self.verbose:
+            output_file = sys.stderr if self.json_format else sys.stdout
+            print(f"  Deduplicated: {len(all_findings)} findings", file=output_file)
+            print(file=output_file)
+            print("✨ Normalizing findings to Roger format...", file=output_file)
+
+        normalized = normalize_findings(all_findings)
+
+        if self.verbose:
+            output_file = sys.stderr if self.json_format else sys.stdout
+            print(f"  Normalized: {len(normalized)} findings", file=output_file)
+            print(file=output_file)
+
+        return normalized
+
+    def _create_defect_log_with_output(self, normalized_findings: List[Dict]) -> int:
+        """Create defect log with verbose output"""
+        if self.verbose:
+            output_file = sys.stderr if self.json_format else sys.stdout
+            print("📝 Creating defect log...", file=output_file)
+
+        defects_created = self.defect_logger.create_defect_log(
+            normalized_findings, self.project_name, overwrite=True
+        )
+
+        if self.verbose:
+            output_file = sys.stderr if self.json_format else sys.stdout
+            print(f"  Defects logged: {defects_created}", file=output_file)
+            print(f"  Log path: {self.defect_log_path}", file=output_file)
+            print(file=output_file)
+
+        return defects_created
 
     def analyze(self, file_paths: List[str]) -> Dict:
         """
@@ -164,75 +227,37 @@ class RogerOrchestrator:  # pylint: disable=too-few-public-methods
             >>> print(f"Found {result['summary']['total_issues']} issues")
         """
         start_time = time.time()
+        self._print_analysis_start(file_paths)
 
-        if self.verbose:
-            print("🔍 Roger Orchestrator - Starting analysis")
-            print(f"  Project: {self.project_name}")
-            print(f"  Files: {len(file_paths)}")
-            print(f"  Layer 3: {'Enabled' if self.enable_layer3 else 'Disabled'}")
-            print()
-
-        # Phase 1: Run Layer 1 (linter aggregator)
+        # Run layers
         layer1_findings, layer1_success = self._run_layer1(file_paths)
-
-        # Phase 2: Run Layer 3 (CodeRabbit) if enabled
         layer3_findings = []
         if self.enable_layer3 and self.layer3:
             layer3_findings = self._run_layer3(file_paths)
 
-        # Phase 3: Deduplicate findings
-        if self.verbose:
-            print("🔀 Deduplicating findings...")
-            print(f"  Layer 1: {len(layer1_findings)} findings")
-            print(f"  Layer 3: {len(layer3_findings)} findings")
-
-        all_findings = deduplicate_findings(layer1_findings, layer3_findings)
-
-        if self.verbose:
-            print(f"  Deduplicated: {len(all_findings)} findings")
-            print()
-
-        # Phase 4: Normalize output
-        if self.verbose:
-            print("✨ Normalizing findings to Roger format...")
-
-        normalized_findings = normalize_findings(all_findings)
-
-        if self.verbose:
-            print(f"  Normalized: {len(normalized_findings)} findings")
-            print()
-
-        # Phase 5: Generate summary
-        summary = generate_summary(normalized_findings)
-
-        # Phase 6: Create defects in defect log
-        if self.verbose:
-            print("📝 Creating defect log...")
-
-        defects_created = self.defect_logger.create_defect_log(
-            normalized_findings, self.project_name, overwrite=True
+        # Process findings
+        normalized_findings = self._deduplicate_and_normalize(
+            layer1_findings, layer3_findings
         )
+        summary = generate_summary(normalized_findings)
+        defects_created = self._create_defect_log_with_output(normalized_findings)
 
-        if self.verbose:
-            print(f"  Defects logged: {defects_created}")
-            print(f"  Log path: {self.defect_log_path}")
-            print()
-
-        # Calculate execution time
+        # Build result
         execution_time = time.time() - start_time
-
-        # Determine layers used
         layers_used = ["layer1"]
         if self.enable_layer3 and len(layer3_findings) > 0:
             layers_used.append("layer3")
 
-        # Determine status
-        status = "success"
-        if not layer1_success:
-            status = "partial_failure"  # Layer 1 execution failed
+        status = "success" if layer1_success else "partial_failure"
 
-        # Generate result
-        analysis_result = {
+        if self.verbose:
+            output_file = sys.stderr if self.json_format else sys.stdout
+            print("✅ Analysis complete", file=output_file)
+            print(f"  {summary['summary_text']}", file=output_file)
+            print(f"  Execution time: {execution_time:.2f}s", file=output_file)
+            print(file=output_file)
+
+        return {
             "findings": normalized_findings,
             "summary": summary,
             "defects_created": defects_created,
@@ -242,14 +267,6 @@ class RogerOrchestrator:  # pylint: disable=too-few-public-methods
             "project_name": self.project_name,
             "defect_log_path": str(self.defect_log_path),
         }
-
-        if self.verbose:
-            print("✅ Analysis complete")
-            print(f"  {summary['summary_text']}")
-            print(f"  Execution time: {execution_time:.2f}s")
-            print()
-
-        return analysis_result
 
     def _run_layer1(  # pylint: disable=too-many-branches
         self, file_paths: List[str]
@@ -278,7 +295,8 @@ class RogerOrchestrator:  # pylint: disable=too-few-public-methods
             True
         """
         if self.verbose:
-            print("🔧 Running Layer 1 (Linter Aggregator)...")
+            output_file = sys.stderr if self.json_format else sys.stdout
+            print("🔧 Running Layer 1 (Linter Aggregator)...", file=output_file)
 
         # Determine path to analyze
         # If multiple paths, analyze first one (simple implementation for Phase 2)
@@ -305,18 +323,19 @@ class RogerOrchestrator:  # pylint: disable=too-few-public-methods
                 ]
 
                 if self.verbose:
-                    print(f"  ✓ Layer 1 complete: {len(layer1_findings)} issues")
-                    print()
+                    output_file = sys.stderr if self.json_format else sys.stdout
+                    print(
+                        f"  ✓ Layer 1 complete: {len(layer1_findings)} issues",
+                        file=output_file,
+                    )
+                    print(file=output_file)
 
                 return layer1_findings, True
 
             # Fallback: Run as subprocess
-            import subprocess  # pylint: disable=import-outside-toplevel
-            import json as json_module  # pylint: disable=import-outside-toplevel
-
             linter_path = Path(__file__).parent / "linter_aggregator.py"
 
-            subprocess_result = subprocess.run(
+            subprocess_result = subprocess.run(  # nosec B603
                 [
                     sys.executable,
                     str(linter_path),
@@ -337,24 +356,32 @@ class RogerOrchestrator:  # pylint: disable=too-few-public-methods
                 layer1_findings = data.get("issues", [])
 
                 if self.verbose:
+                    output_file = sys.stderr if self.json_format else sys.stdout
                     layer1_count = len(layer1_findings)
-                    print(f"  ✓ Layer 1 complete: {layer1_count} issues")
-                    print()
+                    print(
+                        f"  ✓ Layer 1 complete: {layer1_count} issues", file=output_file
+                    )
+                    print(file=output_file)
 
                 return layer1_findings, True
 
             if self.verbose:
-                print(f"  ⚠️  Layer 1 failed (exit code {subprocess_result.returncode})")
+                output_file = sys.stderr if self.json_format else sys.stdout
+                print(
+                    f"  ⚠️  Layer 1 failed (exit code {subprocess_result.returncode})",
+                    file=output_file,
+                )
                 if subprocess_result.stderr:
-                    print(f"  Error: {subprocess_result.stderr}")
-                print()
+                    print(f"  Error: {subprocess_result.stderr}", file=output_file)
+                print(file=output_file)
 
             return [], False
 
         except (subprocess.TimeoutExpired, RuntimeError, OSError) as e:
             if self.verbose:
-                print(f"  ✗ Layer 1 exception: {e}")
-                print()
+                output_file = sys.stderr if self.json_format else sys.stdout
+                print(f"  ✗ Layer 1 exception: {e}", file=output_file)
+                print(file=output_file)
             return [], False
 
     def _run_layer3(self, file_paths: List[str]) -> List[Dict]:
@@ -377,21 +404,24 @@ class RogerOrchestrator:  # pylint: disable=too-few-public-methods
             []
         """
         if self.verbose:
-            print("🤖 Running Layer 3 (CodeRabbit)...")
+            output_file = sys.stderr if self.json_format else sys.stdout
+            print("🤖 Running Layer 3 (CodeRabbit)...", file=output_file)
 
         try:
             findings = self.layer3.analyze_files(file_paths)
 
             if self.verbose:
-                print(f"  ✓ Layer 3 complete: {len(findings)} issues")
-                print()
+                output_file = sys.stderr if self.json_format else sys.stdout
+                print(f"  ✓ Layer 3 complete: {len(findings)} issues", file=output_file)
+                print(file=output_file)
 
             return findings
 
         except (RuntimeError, OSError, ValueError) as e:
             if self.verbose:
-                print(f"  ✗ Layer 3 exception: {e}")
-                print()
+                output_file = sys.stderr if self.json_format else sys.stdout
+                print(f"  ✗ Layer 3 exception: {e}", file=output_file)
+                print(file=output_file)
             return []
 
 
@@ -401,6 +431,7 @@ def roger_orchestrator(
     enable_layer3: bool = False,
     defect_log_path: str = "./DEFECT-LOG.md",
     verbose: bool = False,
+    json_format: bool = False,
 ) -> Dict:
     """
     Convenience function to run Roger orchestrator.
@@ -414,6 +445,7 @@ def roger_orchestrator(
         enable_layer3: Enable CodeRabbit Layer 3 (default: False)
         defect_log_path: Path to defect log file (default: ./DEFECT-LOG.md)
         verbose: Enable verbose output (default: False)
+        json_format: If True, send all output to stderr (default: False)
 
     Returns:
         Dictionary with analysis results (see RogerOrchestrator.analyze)
@@ -431,6 +463,7 @@ def roger_orchestrator(
         enable_layer3=enable_layer3,
         defect_log_path=defect_log_path,
         verbose=verbose,
+        json_format=json_format,
     )
 
     return orchestrator.analyze(file_paths)

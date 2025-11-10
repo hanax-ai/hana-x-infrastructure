@@ -261,6 +261,11 @@ class DefectLogger:
 
 """
 
+    def _count_priorities(self, findings: List[Dict]) -> Dict[str, int]:
+        """Count findings by priority"""
+        priorities = ["P0", "P1", "P2", "P3", "P4"]
+        return {p: len([f for f in findings if f.get("priority") == p]) for p in priorities}
+
     def _generate_summary_table(self, findings: List[Dict]) -> str:
         """
         Generate summary table by priority.
@@ -271,24 +276,17 @@ class DefectLogger:
         Returns:
             Markdown-formatted summary table
         """
-        # Count by priority
-        priority_counts = {
-            "P0": len([f for f in findings if f.get("priority") == "P0"]),
-            "P1": len([f for f in findings if f.get("priority") == "P1"]),
-            "P2": len([f for f in findings if f.get("priority") == "P2"]),
-            "P3": len([f for f in findings if f.get("priority") == "P3"]),
-            "P4": len([f for f in findings if f.get("priority") == "P4"]),
-        }
+        counts = self._count_priorities(findings)
 
         return f"""## Summary
 
 | Priority | Count |
 |----------|-------|
-| P0 (Critical) | {priority_counts['P0']} |
-| P1 (High) | {priority_counts['P1']} |
-| P2 (Medium) | {priority_counts['P2']} |
-| P3 (Low) | {priority_counts['P3']} |
-| P4 (Info) | {priority_counts['P4']} |
+| P0 (Critical) | {counts['P0']} |
+| P1 (High) | {counts['P1']} |
+| P2 (Medium) | {counts['P2']} |
+| P3 (Low) | {counts['P3']} |
+| P4 (Info) | {counts['P4']} |
 
 ---
 

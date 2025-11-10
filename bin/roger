@@ -31,7 +31,7 @@ import argparse
 from pathlib import Path
 
 # Add Roger directory to Python path
-ROGER_DIR = Path(__file__).parent.parent / '.claude' / 'agents' / 'roger'
+ROGER_DIR = Path(__file__).parent.parent / ".claude" / "agents" / "roger"
 sys.path.insert(0, str(ROGER_DIR))
 
 try:
@@ -44,23 +44,25 @@ except ImportError as e:
 
 # ANSI color codes
 class Colors:
-    RED = '\033[91m'
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    BLUE = '\033[94m'
-    MAGENTA = '\033[95m'
-    CYAN = '\033[96m'
-    WHITE = '\033[97m'
-    BOLD = '\033[1m'
-    RESET = '\033[0m'
+    RED = "\033[91m"
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    BLUE = "\033[94m"
+    MAGENTA = "\033[95m"
+    CYAN = "\033[96m"
+    WHITE = "\033[97m"
+    BOLD = "\033[1m"
+    RESET = "\033[0m"
 
 
-def print_color(text: str, color: str = Colors.WHITE, bold: bool = False):
+def print_color(
+    text: str, color: str = Colors.WHITE, bold: bool = False, file=sys.stdout
+):
     """Print colored text to terminal"""
     if bold:
-        print(f"{Colors.BOLD}{color}{text}{Colors.RESET}")
+        print(f"{Colors.BOLD}{color}{text}{Colors.RESET}", file=file)
     else:
-        print(f"{color}{text}{Colors.RESET}")
+        print(f"{color}{text}{Colors.RESET}", file=file)
 
 
 def print_banner():
@@ -86,9 +88,9 @@ def print_banner():
 def format_text_output(result: dict) -> None:
     """Format and print text output"""
     print()
-    print_color("="*80, Colors.BLUE, bold=True)
+    print_color("=" * 80, Colors.BLUE, bold=True)
     print_color("ROGER ORCHESTRATOR RESULTS", Colors.BLUE, bold=True)
-    print_color("="*80, Colors.BLUE, bold=True)
+    print_color("=" * 80, Colors.BLUE, bold=True)
     print()
 
     # Project info
@@ -97,7 +99,7 @@ def format_text_output(result: dict) -> None:
     print()
 
     # Status
-    status_color = Colors.GREEN if result['status'] == 'success' else Colors.RED
+    status_color = Colors.GREEN if result["status"] == "success" else Colors.RED
     print_color(f"📊 Status: ", Colors.WHITE, bold=True)
     print_color(f"   {result['status']}", status_color)
     print()
@@ -112,7 +114,7 @@ def format_text_output(result: dict) -> None:
     print()
 
     # Summary
-    summary = result['summary']
+    summary = result["summary"]
     print_color(f"📈 Summary:", Colors.WHITE, bold=True)
     print(f"   {summary['summary_text']}")
     print()
@@ -120,28 +122,28 @@ def format_text_output(result: dict) -> None:
     # Priority breakdown
     print_color(f"🎯 Priority Breakdown:", Colors.WHITE, bold=True)
     priority_colors = {
-        'P0': Colors.RED,
-        'P1': Colors.YELLOW,
-        'P2': Colors.MAGENTA,
-        'P3': Colors.CYAN,
-        'P4': Colors.WHITE
+        "P0": Colors.RED,
+        "P1": Colors.YELLOW,
+        "P2": Colors.MAGENTA,
+        "P3": Colors.CYAN,
+        "P4": Colors.WHITE,
     }
-    for priority, count in summary['by_priority'].items():
+    for priority, count in summary["by_priority"].items():
         if count > 0:
             color = priority_colors.get(priority, Colors.WHITE)
             print_color(f"   {priority}: {count}", color)
     print()
 
     # Category breakdown
-    if summary['by_category']:
+    if summary["by_category"]:
         print_color(f"📂 Category Breakdown:", Colors.WHITE, bold=True)
-        for category, count in sorted(summary['by_category'].items()):
+        for category, count in sorted(summary["by_category"].items()):
             print(f"   {category}: {count}")
         print()
 
     # Layer breakdown
     print_color(f"🔀 Layer Breakdown:", Colors.WHITE, bold=True)
-    for layer, count in summary['by_layer'].items():
+    for layer, count in summary["by_layer"].items():
         print(f"   {layer}: {count}")
     print()
 
@@ -152,12 +154,21 @@ def format_text_output(result: dict) -> None:
     print()
 
     # Exit message
-    critical_high = summary['by_priority']['P0'] + summary['by_priority']['P1']
+    critical_high = summary["by_priority"]["P0"] + summary["by_priority"]["P1"]
     if critical_high > 0:
-        print_color(f"⚠️  WARNING: {critical_high} critical/high priority issue(s) found!", Colors.YELLOW, bold=True)
-        print_color(f"   Review defect log for details: {result['defect_log_path']}", Colors.YELLOW)
+        print_color(
+            f"⚠️  WARNING: {critical_high} critical/high priority issue(s) found!",
+            Colors.YELLOW,
+            bold=True,
+        )
+        print_color(
+            f"   Review defect log for details: {result['defect_log_path']}",
+            Colors.YELLOW,
+        )
     else:
-        print_color(f"✅ No critical/high priority issues found!", Colors.GREEN, bold=True)
+        print_color(
+            f"✅ No critical/high priority issues found!", Colors.GREEN, bold=True
+        )
 
     print()
 
@@ -165,7 +176,7 @@ def format_text_output(result: dict) -> None:
 def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(
-        description='Roger Code Review Orchestrator - Layer 1 + Layer 3 Analysis',
+        description="Roger Code Review Orchestrator - Layer 1 + Layer 3 Analysis",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -199,58 +210,47 @@ Layers:
 Defect Log:
   Generated in Markdown format at ./DEFECT-LOG.md (default)
   Contains detailed defect information with priority, category, source, and fix suggestions
-        """
+        """,
     )
 
     parser.add_argument(
-        '--path',
-        nargs='+',
-        default=['.'],
-        help=(
-            'File paths or directories to analyze '
-            '(default: current directory)'
-        )
+        "--path",
+        nargs="+",
+        default=["."],
+        help=("File paths or directories to analyze " "(default: current directory)"),
     )
     parser.add_argument(
-        '--project',
-        default='Unknown Project',
-        help=(
-            'Project name for defect tracking '
-            '(default: "Unknown Project")'
-        )
+        "--project",
+        default="Unknown Project",
+        help=("Project name for defect tracking " '(default: "Unknown Project")'),
     )
     parser.add_argument(
-        '--enable-layer3',
-        action='store_true',
-        help='Enable CodeRabbit Layer 3 (default: disabled in Phase 2)'
+        "--enable-layer3",
+        action="store_true",
+        help="Enable CodeRabbit Layer 3 (default: disabled in Phase 2)",
     )
     parser.add_argument(
-        '--defect-log',
-        default='./DEFECT-LOG.md',
-        help='Path to defect log file (default: ./DEFECT-LOG.md)'
+        "--defect-log",
+        default="./DEFECT-LOG.md",
+        help="Path to defect log file (default: ./DEFECT-LOG.md)",
     )
     parser.add_argument(
-        '--format',
-        choices=['json', 'text'],
-        default='text',
-        help='Output format: json or text (default: text)'
+        "--format",
+        choices=["json", "text"],
+        default="text",
+        help="Output format: json or text (default: text)",
     )
     parser.add_argument(
-        '--verbose',
-        '-v',
-        action='store_true',
-        help='Enable verbose output'
+        "--verbose", "-v", action="store_true", help="Enable verbose output"
     )
     parser.add_argument(
-        '--no-banner',
-        action='store_true',
-        help='Suppress banner output'
+        "--no-banner", action="store_true", help="Suppress banner output"
     )
 
     args = parser.parse_args()
 
     # Print banner (unless suppressed or JSON output)
-    if not args.no_banner and args.format == 'text':
+    if not args.no_banner and args.format == "text":
         print_banner()
 
     # Run orchestrator
@@ -260,21 +260,23 @@ Defect Log:
             project_name=args.project,
             enable_layer3=args.enable_layer3,
             defect_log_path=args.defect_log,
-            verbose=args.verbose
+            verbose=args.verbose,
+            json_format=(args.format == "json"),
         )
 
         # Output results
-        if args.format == 'json':
+        if args.format == "json":
+            # JSON output goes to stdout (already handled by orchestrator routing other output to stderr)
             print(json.dumps(result, indent=2))
         else:
             format_text_output(result)
 
         # Exit code
-        if result['status'] != 'success':
+        if result["status"] != "success":
             sys.exit(2)
         elif (
-            result['summary']['by_priority']['P0'] > 0
-            or result['summary']['by_priority']['P1'] > 0
+            result["summary"]["by_priority"]["P0"] > 0
+            or result["summary"]["by_priority"]["P1"] > 0
         ):
             sys.exit(1)
         else:
@@ -289,10 +291,11 @@ Defect Log:
         print_color(f"❌ Error: {e}", Colors.RED, bold=True)
         if args.verbose:
             import traceback
+
             print()
             traceback.print_exc()
         sys.exit(2)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
